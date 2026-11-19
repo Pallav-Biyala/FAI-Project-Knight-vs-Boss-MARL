@@ -1,6 +1,7 @@
 """Parallel and custom-axis experiment sweep execution."""
 
 from concurrent.futures import ProcessPoolExecutor
+import multiprocessing as mp
 import csv
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
@@ -183,7 +184,10 @@ def run_parallel_sweep(
                 handle.flush()
                 completed_runs += 1
         else:
-            with ProcessPoolExecutor(max_workers=max_workers) as pool:
+            with ProcessPoolExecutor(
+                max_workers=max_workers,
+                mp_context=mp.get_context("spawn"),
+            ) as pool:
                 for task, summary in pool.map(_train_single_task, tasks):
                     writer.writerow(
                         {
