@@ -1,0 +1,13 @@
+regime: fixed_opponent
+training_episodes: 1000
+checkpoint_interval_updates: 10
+validation_interval_updates: 10
+validation_episodes: 50
+validation_seed: 90000
+validation_alpha_h: 1.0
+validation_alpha_d: 1.0
+output_root: runs
+opponent: heuristic
+reward_mode: shaped
+shaping_weight: 0.5
+training_steps: 500000

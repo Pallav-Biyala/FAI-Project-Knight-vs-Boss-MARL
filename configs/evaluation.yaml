@@ -1,0 +1,4 @@
+episodes_per_model: 500
+base_seed: 100000
+deterministic: false
+confidence_level: 0.95

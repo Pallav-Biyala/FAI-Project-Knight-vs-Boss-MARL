@@ -1,0 +1,13 @@
+alpha_h:
+  min: 0.5
+  max: 3.0
+alpha_d:
+  min: 0.5
+  max: 3.0
+resolution: 0.25
+seeds: [0, 1, 2, 3, 4]
+regimes:
+  - fixed_opponent
+  - simultaneous_learning
+  - alternating_learning
+output_root: experiments
