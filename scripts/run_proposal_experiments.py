@@ -32,13 +32,13 @@ def job_key(
 ) -> str:
     return f"{regime}|{alpha_h:g}|{alpha_d:g}|{reward_mode}|s{seed}"
 
-
 def _make_env_factory(
     game_config,
     alpha_h,
     alpha_d,
     reward_mode,
     shaping_weight,
+    gamma,
 ):
     from knight_boss.marl.proposal_env import ProposalCombatEnv
 
@@ -49,6 +49,7 @@ def _make_env_factory(
             alpha_d=alpha_d,
             reward_mode=reward_mode,
             shaping_weight=shaping_weight,
+            gamma=gamma,
         )
 
     return factory
@@ -77,6 +78,7 @@ def _evaluate(
     episodes,
     reward_mode,
     shaping_weight,
+    gamma,
 ):
     from knight_boss.evaluation.evaluator import evaluate_policies
 
@@ -94,6 +96,7 @@ def _evaluate(
             alpha_d,
             reward_mode,
             shaping_weight,
+            gamma,
         ),
     )
 
@@ -122,6 +125,7 @@ def _train_best_response_boss(
         alpha_d,
         reward_mode,
         shaping_weight,
+        ppo_config.gamma,
     )()
 
     observations, _ = env.reset(seed=seed)
@@ -209,6 +213,9 @@ def run_job(job: dict) -> dict:
             if regime == "alternating_learning"
             else None
         ),
+        population_size=job["population_size"],
+        phase_updates=job["phase_updates"],
+        snapshot_interval_updates=job["snapshot_interval_updates"],
     )
 
     summary = run_training(
@@ -224,6 +231,7 @@ def run_job(job: dict) -> dict:
             d,
             reward_mode,
             shaping,
+            ppo_config.gamma,
         )(),
         heuristic_factory=lambda s: ProposalHeuristicBoss(
             rows=game_config.rows,
@@ -241,6 +249,7 @@ def run_job(job: dict) -> dict:
         ad,
         reward_mode,
         shaping,
+        ppo_config.gamma,
     )().reset(seed=0)
 
     size = observation_to_vector(probe_obs["knight"]).size
@@ -262,6 +271,9 @@ def run_job(job: dict) -> dict:
         "train_episodes": summary["completed_episodes"],
         "run_dir": str(run_dir),
         "reward_mode": reward_mode,
+        "population_size": job["population_size"],
+        "phase_updates": job["phase_updates"],
+        "snapshot_interval_updates": job["snapshot_interval_updates"],
     }
 
     rows = []
@@ -288,6 +300,7 @@ def run_job(job: dict) -> dict:
                 job["eval_episodes"],
                 reward_mode,
                 shaping,
+                ppo_config.gamma,
             ),
         }
     )
@@ -315,6 +328,7 @@ def run_job(job: dict) -> dict:
                     job["eval_episodes"],
                     reward_mode,
                     shaping,
+                    ppo_config.gamma,
                 ),
             }
         )
@@ -349,6 +363,7 @@ def run_job(job: dict) -> dict:
                     job["eval_episodes"],
                     reward_mode,
                     shaping,
+                    ppo_config.gamma,
                 ),
             }
         )
@@ -374,9 +389,13 @@ def run_baselines(
         ProposalHeuristicKnight,
         ProposalRandomAgent,
     )
+    from knight_boss.training.config import PPOConfig
 
     game_config = GameConfig.from_yaml(
         PROJECT_ROOT / "configs" / "game.yaml"
+    )
+    ppo_config = PPOConfig.from_yaml(
+        PROJECT_ROOT / "configs" / "ppo.yaml"
     )
 
     rows = []
@@ -412,6 +431,7 @@ def run_baselines(
                         eval_episodes,
                         reward_mode,
                         shaping,
+                        ppo_config.gamma,
                     ),
                 }
             )
@@ -446,6 +466,7 @@ def main() -> None:
             "fixed_opponent",
             "simultaneous_learning",
             "alternating_learning",
+            "population_self_play",
         ],
     )
 
@@ -514,8 +535,29 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--population-size",
+        type=int,
+        default=10,
+        help="Population self-play: number of frozen Boss snapshots kept.",
+    )
+
+    parser.add_argument(
+        "--phase-updates",
+        type=int,
+        default=5,
+        help="Population self-play: PPO updates per Knight/Boss phase.",
+    )
+
+    parser.add_argument(
+        "--snapshot-interval-updates",
+        type=int,
+        default=5,
+        help="Population self-play: snapshot the Boss every N updates.",
+    )
+
+    parser.add_argument(
         "--reward-mode",
-        choices=["terminal", "shaped", "draw_penalty"],
+        choices=["terminal", "shaped", "draw_penalty", "combat", "tactical"],
         default="shaped",
         help="Reward function used during training.",
     )
@@ -546,6 +588,10 @@ def main() -> None:
         args.diagonal = [1.0, 1.5]
         args.durability = []
         args.lethality = []
+        # Keep population phases short enough to exercise the alternation.
+        args.population_size = 3
+        args.phase_updates = 1
+        args.snapshot_interval_updates = 1
         args.out = f"experiments_smoke_{args.reward_mode}"
 
     out = Path(args.out)
@@ -603,6 +649,9 @@ def main() -> None:
                         "eval_episodes": args.eval_episodes,
                         "shaping_weight": args.shaping_weight,
                         "reward_mode": args.reward_mode,
+                        "population_size": args.population_size,
+                        "phase_updates": args.phase_updates,
+                        "snapshot_interval_updates": args.snapshot_interval_updates,
                         "out": str(out),
                     }
                 )

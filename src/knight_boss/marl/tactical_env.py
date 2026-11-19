@@ -33,6 +33,7 @@ class TacticalParallelEnv(KnightBossParallelEnv):
         reward_mode: str = "terminal",
         shaping_weight: float = 0.5,
         draw_penalty: float = 0.75,
+        gamma: float = 0.995,
         enable_dodge: bool = True,
         enable_heal: bool = True,
         dodge_cooldown: int = 3,
@@ -50,6 +51,7 @@ class TacticalParallelEnv(KnightBossParallelEnv):
             reward_mode=reward_mode,
             shaping_weight=shaping_weight,
             draw_penalty=draw_penalty,
+            gamma=gamma,
         )
         self.enable_dodge = enable_dodge
         self.enable_heal = enable_heal
@@ -203,8 +205,7 @@ class TacticalParallelEnv(KnightBossParallelEnv):
         rewards = self._compute_rewards(
             outcome=self.engine.outcome,
             truncated=self.engine.truncated,
-            prev_knight_rec=prev_rec["knight"],
-            prev_boss_rec=prev_rec["boss"],
+            prev_health=prev_health,
             prev_distance=prev_distance,
         )
         terminations = {agent: self.engine.terminated for agent in acting_agents}
@@ -229,8 +230,7 @@ class TacticalParallelEnv(KnightBossParallelEnv):
         *,
         outcome,
         truncated: bool,
-        prev_knight_rec: int,
-        prev_boss_rec: int,
+        prev_health: Mapping[str, int],
         prev_distance: int,
     ) -> dict[str, float]:
         from knight_boss.marl.rewards import (
@@ -240,47 +240,44 @@ class TacticalParallelEnv(KnightBossParallelEnv):
             terminal_rewards,
         )
 
-        k_delta = self.engine.damage_received["knight"] - prev_knight_rec
-        b_delta = self.engine.damage_received["boss"] - prev_boss_rec
-        k_max = self.engine.fighters["knight"].max_health
-        b_max = self.engine.fighters["boss"].max_health
+        knight = self.engine.fighters["knight"]
+        boss = self.engine.fighters["boss"]
+
+        common = {
+            "prev_knight_health": prev_health["knight"],
+            "curr_knight_health": knight.health,
+            "prev_boss_health": prev_health["boss"],
+            "curr_boss_health": boss.health,
+            "knight_max_health": knight.max_health,
+            "boss_max_health": boss.max_health,
+            "shaping_weight": self.shaping_weight,
+            "gamma": self.gamma,
+            "truncated": truncated,
+        }
+
         if self.reward_mode == "combat":
-            curr_k_pos = self.engine.fighters["knight"].position
-            curr_b_pos = self.engine.fighters["boss"].position
+            curr_k_pos = knight.position
+            curr_b_pos = boss.position
             curr_distance = abs(curr_k_pos[0] - curr_b_pos[0]) + abs(
                 curr_k_pos[1] - curr_b_pos[1]
             )
             return combat_rewards(
                 outcome,
-                truncated=truncated,
-                knight_damage_received_delta=k_delta,
-                boss_damage_received_delta=b_delta,
-                knight_max_health=k_max,
-                boss_max_health=b_max,
+                **common,
                 prev_distance=prev_distance,
                 curr_distance=curr_distance,
-                shaping_weight=self.shaping_weight,
             )
+
         if self.reward_mode == "draw_penalty":
             return draw_penalty_rewards(
                 outcome,
-                truncated=truncated,
-                knight_damage_received_delta=k_delta,
-                boss_damage_received_delta=b_delta,
-                knight_max_health=k_max,
-                boss_max_health=b_max,
-                shaping_weight=self.shaping_weight,
+                **common,
                 penalty=self.draw_penalty,
             )
+
         if self.reward_mode == "shaped":
-            return shaped_rewards(
-                outcome,
-                knight_damage_received_delta=k_delta,
-                boss_damage_received_delta=b_delta,
-                knight_max_health=k_max,
-                boss_max_health=b_max,
-                shaping_weight=self.shaping_weight,
-            )
+            return shaped_rewards(outcome, **common)
+
         return terminal_rewards(outcome)
 
 

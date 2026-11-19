@@ -60,6 +60,7 @@ class MultiAgentPPOTrainer:
         *,
         trainable_agents: Sequence[str] | None = None,
         stop_after_episodes: int | None = None,
+        stop_at_episode_end: bool = False,
     ) -> dict[str, RolloutBatch]:
         rollout_steps = self.config.rollout_steps if steps is None else steps
         if rollout_steps < 1:
@@ -73,7 +74,13 @@ class MultiAgentPPOTrainer:
         buffers = {agent: RolloutBuffer() for agent in trainable}
         completed_in_rollout: list[dict[str, object]] = []
 
-        for _ in range(rollout_steps):
+        steps_collected = 0
+        episode_ended = False
+
+        while steps_collected < rollout_steps or (
+            stop_at_episode_end and not episode_ended
+        ):
+            episode_ended = False
             current_observations = self.observations
             pending_records: dict[str, tuple[np.ndarray, int, float, float]] = {}
             actions: dict[str, int] = {}
@@ -119,6 +126,7 @@ class MultiAgentPPOTrainer:
                 )
 
             self.total_environment_steps += 1
+            steps_collected += 1
             if self.env.agents:
                 self.observations = next_observations
             else:
@@ -138,6 +146,7 @@ class MultiAgentPPOTrainer:
                 self.observations, _ = self.env.reset(
                     seed=self.seed + self.completed_episodes
                 )
+                episode_ended = True
                 if (
                     stop_after_episodes is not None
                     and self.completed_episodes >= stop_after_episodes
@@ -168,11 +177,13 @@ class MultiAgentPPOTrainer:
         *,
         trainable_agents: Sequence[str] | None = None,
         stop_after_episodes: int | None = None,
+        stop_at_episode_end: bool = False,
     ) -> dict[str, dict[str, float]]:
         batches = self.collect_rollout(
             steps,
             trainable_agents=trainable_agents,
             stop_after_episodes=stop_after_episodes,
+            stop_at_episode_end=stop_at_episode_end,
         )
         metrics: dict[str, dict[str, float]] = {}
         for agent, batch in batches.items():

@@ -1,0 +1,17 @@
+regime: population_self_play
+training_episodes: 1000
+checkpoint_interval_updates: 10
+validation_interval_updates: 10
+validation_episodes: 50
+validation_seed: 90000
+validation_alpha_h: 1.0
+validation_alpha_d: 1.0
+output_root: runs
+reward_mode: tactical
+shaping_weight: 0.5
+draw_penalty: 0.75
+training_steps: 500000
+
+population_size: 10
+phase_updates: 5
+snapshot_interval_updates: 5

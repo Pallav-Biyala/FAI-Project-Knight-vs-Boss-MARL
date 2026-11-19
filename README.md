@@ -110,7 +110,7 @@ python scripts/run_sweep.py
 ```
 
 The default `configs/experiments.yaml` defines 11 Alpha_H values × 11
-Alpha_D values (121 pairs), five independent seeds, and three regimes: 1,815
+Alpha_D values (121 pairs), five independent seeds, and four regimes: 2,420
 training runs. The runner groups runs by experiment and incrementally writes a
 manifest with **training** multipliers and model/run metadata. It is a large
 workload and should be launched deliberately.

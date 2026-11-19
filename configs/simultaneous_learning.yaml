@@ -7,6 +7,7 @@ validation_seed: 90000
 validation_alpha_h: 1.0
 validation_alpha_d: 1.0
 output_root: runs
-reward_mode: shaped
+reward_mode: draw_penalty
 shaping_weight: 0.5
+draw_penalty: 0.75
 training_steps: 500000

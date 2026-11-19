@@ -36,6 +36,7 @@ class KnightBossParallelEnv(ParallelEnv[str, dict[str, np.ndarray], int]):
         reward_mode: str = "terminal",
         shaping_weight: float = 0.5,
         draw_penalty: float = 0.75,
+        gamma: float = 0.995,
     ) -> None:
         if render_mode not in (None, "ansi"):
             raise ValueError("render_mode must be None or 'ansi'.")
@@ -45,6 +46,8 @@ class KnightBossParallelEnv(ParallelEnv[str, dict[str, np.ndarray], int]):
             raise ValueError("shaping_weight must be non-negative and finite.")
         if not isfinite(draw_penalty) or draw_penalty < 0:
             raise ValueError("draw_penalty must be non-negative and finite.")
+        if not isfinite(gamma) or not 0.0 <= gamma <= 1.0:
+            raise ValueError("gamma must be finite and in [0, 1].")
         self.config = config or GameConfig()
         self.alpha_h = self.config.alpha_h if alpha_h is None else alpha_h
         self.alpha_d = self.config.alpha_d if alpha_d is None else alpha_d
@@ -59,6 +62,7 @@ class KnightBossParallelEnv(ParallelEnv[str, dict[str, np.ndarray], int]):
         self.reward_mode = reward_mode
         self.shaping_weight = shaping_weight
         self.draw_penalty = draw_penalty
+        self.gamma = gamma
         self.possible_agents = list(AGENTS)
         self.agents: list[str] = []
         self._observation_spaces = {
@@ -127,8 +131,8 @@ class KnightBossParallelEnv(ParallelEnv[str, dict[str, np.ndarray], int]):
             parsed_actions[agent] = Action(int(action))
 
         acting_agents = self.agents.copy()
-        prev_knight_rec = self.engine.damage_received["knight"]
-        prev_boss_rec = self.engine.damage_received["boss"]
+        prev_knight_health = self.engine.fighters["knight"].health
+        prev_boss_health = self.engine.fighters["boss"].health
         prev_k_pos = self.engine.fighters["knight"].position
         prev_b_pos = self.engine.fighters["boss"].position
         prev_distance = abs(prev_k_pos[0] - prev_b_pos[0]) + abs(prev_k_pos[1] - prev_b_pos[1])
@@ -142,45 +146,42 @@ class KnightBossParallelEnv(ParallelEnv[str, dict[str, np.ndarray], int]):
             rewards = combat_rewards(
                 result.outcome,
                 truncated=result.truncated,
-                knight_damage_received_delta=(
-                    self.engine.damage_received["knight"] - prev_knight_rec
-                ),
-                boss_damage_received_delta=(
-                    self.engine.damage_received["boss"] - prev_boss_rec
-                ),
+                prev_knight_health=prev_knight_health,
+                curr_knight_health=self.engine.fighters["knight"].health,
+                prev_boss_health=prev_boss_health,
+                curr_boss_health=self.engine.fighters["boss"].health,
                 knight_max_health=self.engine.fighters["knight"].max_health,
                 boss_max_health=self.engine.fighters["boss"].max_health,
                 prev_distance=prev_distance,
                 curr_distance=curr_distance,
                 shaping_weight=self.shaping_weight,
+                gamma=self.gamma,
             )
         elif self.reward_mode == "draw_penalty":
             rewards = draw_penalty_rewards(
                 result.outcome,
                 truncated=result.truncated,
-                knight_damage_received_delta=(
-                    self.engine.damage_received["knight"] - prev_knight_rec
-                ),
-                boss_damage_received_delta=(
-                    self.engine.damage_received["boss"] - prev_boss_rec
-                ),
+                prev_knight_health=prev_knight_health,
+                curr_knight_health=self.engine.fighters["knight"].health,
+                prev_boss_health=prev_boss_health,
+                curr_boss_health=self.engine.fighters["boss"].health,
                 knight_max_health=self.engine.fighters["knight"].max_health,
                 boss_max_health=self.engine.fighters["boss"].max_health,
                 shaping_weight=self.shaping_weight,
+                gamma=self.gamma,
                 penalty=self.draw_penalty,
             )
         elif self.reward_mode == "shaped":
             rewards = shaped_rewards(
                 result.outcome,
-                knight_damage_received_delta=(
-                    self.engine.damage_received["knight"] - prev_knight_rec
-                ),
-                boss_damage_received_delta=(
-                    self.engine.damage_received["boss"] - prev_boss_rec
-                ),
+                prev_knight_health=prev_knight_health,
+                curr_knight_health=self.engine.fighters["knight"].health,
+                prev_boss_health=prev_boss_health,
+                curr_boss_health=self.engine.fighters["boss"].health,
                 knight_max_health=self.engine.fighters["knight"].max_health,
                 boss_max_health=self.engine.fighters["boss"].max_health,
                 shaping_weight=self.shaping_weight,
+                gamma=self.gamma,
             )
         else:
             rewards = terminal_rewards(result.outcome)

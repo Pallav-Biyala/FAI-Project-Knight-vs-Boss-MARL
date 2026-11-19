@@ -25,6 +25,14 @@ from knight_boss.agents.base_agent import BaseAgent, Observation
 from knight_boss.game.config import GameConfig
 from knight_boss.game.types import Outcome
 from knight_boss.marl.observations import observation_to_vector
+from knight_boss.marl.rewards import (
+    PROPOSAL_REWARD_MODES,
+    combat_rewards,
+    draw_penalty_rewards,
+    shaped_rewards,
+    tactical_rewards,
+    terminal_rewards,
+)
 
 PROPOSAL_AGENTS = ("knight", "boss")
 
@@ -81,6 +89,7 @@ class ProposalCombatEnv(ParallelEnv):
         alpha_d: float | None = None,
         reward_mode: str = "shaped",
         shaping_weight: float = 0.5,
+        gamma: float = 0.995,
         draw_penalty: float = 0.75,
         invincibility_frames: int = 2,
         dodge_cooldown: int = 4,
@@ -97,15 +106,20 @@ class ProposalCombatEnv(ParallelEnv):
         self.alpha_d = float(self.config.alpha_d if alpha_d is None else alpha_d)
         if self.alpha_h <= 0 or self.alpha_d <= 0:
             raise ValueError("alpha_h and alpha_d must be positive.")
-        if reward_mode not in {"terminal", "shaped", "draw_penalty", "combat"}:
+        if reward_mode not in PROPOSAL_REWARD_MODES:
             raise ValueError(
-                "reward_mode must be 'terminal', 'shaped', 'draw_penalty', or 'combat'."
+                f"reward_mode must be one of {PROPOSAL_REWARD_MODES}."
             )
+        if not isfinite(gamma) or not 0.0 <= gamma <= 1.0:
+            raise ValueError("gamma must be between 0 and 1.")
         if not isfinite(draw_penalty) or draw_penalty < 0:
             raise ValueError("draw_penalty must be non-negative and finite.")
+        if not isfinite(shaping_weight) or shaping_weight < 0:
+            raise ValueError("shaping_weight must be non-negative and finite.")
 
         self.reward_mode = reward_mode
         self.shaping_weight = float(shaping_weight)
+        self.gamma = float(gamma)
         self.draw_penalty = float(draw_penalty)
         self.invincibility_frames = int(invincibility_frames)
         self.dodge_cooldown = int(dodge_cooldown)
@@ -123,6 +137,7 @@ class ProposalCombatEnv(ParallelEnv):
         self.knight_max_hp = self.config.knight.max_health
         self.boss_max_hp = max(1, round(self.knight_max_hp * self.alpha_h))
         self.knight_atk_dmg = self.config.knight.basic_damage
+        self.knight_atk_range = self.config.proposal_knight_basic_attack_chebyshev_range
         self.boss_atk_dmg = max(1, round(self.knight_atk_dmg * self.alpha_d))
         self.boss_spec1_dmg = max(1, round(50 * self.alpha_d))
         self.boss_spec2_dmg = max(1, round(40 * self.alpha_d))
@@ -211,7 +226,7 @@ class ProposalCombatEnv(ParallelEnv):
             raise ValueError(f"Invalid proposal actions: knight={k_act}, boss={b_act}.")
 
         acting_agents = self.agents.copy()
-        prev_hp = dict(self.hp)
+        prev_health = dict(self.hp)
         prev_dist = abs(self.pos["knight"][0] - self.pos["boss"][0]) + abs(
             self.pos["knight"][1] - self.pos["boss"][1]
         )
@@ -273,6 +288,12 @@ class ProposalCombatEnv(ParallelEnv):
                         self.pos[agent] = cand
                         events.append(f"{agent}_moved")
 
+        knight_move_distance_delta = (
+            abs(self.pos["knight"][0] - pos_start["boss"][0])
+            + abs(self.pos["knight"][1] - pos_start["boss"][1])
+            - prev_dist
+        )
+
         # 3. Resolve Boss pending special attack z_t started earlier
         dmg_to = {"knight": 0, "boss": 0}
         if pending_at_start is not None:
@@ -284,7 +305,7 @@ class ProposalCombatEnv(ParallelEnv):
             else:
                 kr, kc = self.pos["knight"]
                 if pending_at_start["kind"] == "special1":
-                    br, bc = self.pos["boss"]
+                    br, bc = pending_at_start["origin"]
                     dr, dc = pending_at_start["dir"]
                     hit = False
                     for step_r in range(1, self.special1_range + 1):
@@ -312,14 +333,17 @@ class ProposalCombatEnv(ParallelEnv):
         kr, kc = self.pos["knight"]
         br, bc = self.pos["boss"]
         dist = abs(kr - br) + abs(kc - bc)
+        knight_chebyshev_dist = max(abs(kr - br), abs(kc - bc))
 
         if k_act == int(ProposalKnightAction.ATTACK) and k_cd_start == 0:
-            if dist <= 1:
+            if knight_chebyshev_dist <= self.knight_atk_range:
                 dmg_to["boss"] += self.knight_atk_dmg
                 started_atk_cd["knight"] = 1
                 events.append("knight_attack_hit")
             else:
                 events.append("knight_attack_miss")
+        elif k_act == int(ProposalKnightAction.ATTACK):
+            events.append("knight_attack_noop")
 
         if b_act == int(ProposalBossAction.ATTACK) and b_cd_start == 0:
             if dist <= 1:
@@ -336,7 +360,12 @@ class ProposalCombatEnv(ParallelEnv):
             else:
                 cdir = (0, 1 if dc > 0 else -1)
             if cdir != (0, 0) and max(abs(dr), abs(dc)) <= self.special1_range:
-                self.pending_special = {"kind": "special1", "dir": cdir, "remaining": 1}
+                self.pending_special = {
+                    "kind": "special1",
+                    "origin": pos_start["boss"],
+                    "dir": cdir,
+                    "remaining": 1,
+                }
                 started_atk_cd["boss"] = 2
                 self.events_count["boss_special1_cast"] += 1
                 events.append("boss_special1_windup")
@@ -391,7 +420,13 @@ class ProposalCombatEnv(ParallelEnv):
         curr_dist = abs(self.pos["knight"][0] - self.pos["boss"][0]) + abs(
             self.pos["knight"][1] - self.pos["boss"][1]
         )
-        rewards = self._compute_rewards(prev_hp=prev_hp, prev_dist=prev_dist, curr_dist=curr_dist)
+        rewards = self._compute_rewards(
+            prev_health=prev_health,
+            prev_dist=prev_dist,
+            curr_dist=curr_dist,
+            events=events,
+            knight_move_distance_delta=knight_move_distance_delta,
+        )
         obs = {agent: self._observe(agent) for agent in acting_agents}
         terms = {agent: self.terminated for agent in acting_agents}
         truncs = {agent: self.truncated for agent in acting_agents}
@@ -402,6 +437,8 @@ class ProposalCombatEnv(ParallelEnv):
                 "events": tuple(events),
                 "damage_dealt": self.damage_dealt[agent],
                 "damage_received": self.damage_received[agent],
+                "manhattan_distance": curr_dist,
+                "knight_move_distance_delta": knight_move_distance_delta,
                 "proposal_events": dict(self.events_count),
             }
             for agent in acting_agents
@@ -411,36 +448,57 @@ class ProposalCombatEnv(ParallelEnv):
         return obs, rewards, terms, truncs, infos
 
     def _compute_rewards(
-        self, *, prev_hp: dict[str, int], prev_dist: int, curr_dist: int
+        self,
+        *,
+        prev_health: dict[str, int],
+        prev_dist: int,
+        curr_dist: int,
+        events: list[str],
+        knight_move_distance_delta: int,
     ) -> dict[str, float]:
-        if self.outcome is Outcome.KNIGHT_WIN:
-            r_term = 1.0
-        elif self.outcome is Outcome.BOSS_WIN:
-            r_term = -1.0
-        else:
-            r_term = 0.0
+        common = {
+            "prev_knight_health": prev_health["knight"],
+            "curr_knight_health": self.hp["knight"],
+            "prev_boss_health": prev_health["boss"],
+            "curr_boss_health": self.hp["boss"],
+            "knight_max_health": self.knight_max_hp,
+            "boss_max_health": self.boss_max_hp,
+            "shaping_weight": self.shaping_weight,
+            "gamma": self.gamma,
+            "truncated": self.truncated,
+        }
 
         if self.reward_mode == "terminal":
-            return {"knight": float(r_term), "boss": float(-r_term)}
+            return terminal_rewards(self.outcome)
 
-        # Proposal Eq. (15): max(0, h_B^(t) - h_B^(t+1))/H_B(alpha) - max(0, h_K^(t) - h_K^(t+1))/H_K
-        boss_drop = max(0, prev_hp["boss"] - self.hp["boss"]) / max(1, self.boss_max_hp)
-        knight_drop = max(0, prev_hp["knight"] - self.hp["knight"]) / max(1, self.knight_max_hp)
-        r_shaped = r_term + self.shaping_weight * (boss_drop - knight_drop)
         if self.reward_mode == "shaped":
-            return {"knight": float(r_shaped), "boss": float(-r_shaped)}
-        if self.reward_mode == "draw_penalty":
-            if self.outcome is Outcome.DRAW or self.truncated:
-                return {
-                    "knight": float(r_shaped - self.draw_penalty),
-                    "boss": float(-r_shaped - self.draw_penalty),
-                }
-            return {"knight": float(r_shaped), "boss": float(-r_shaped)}
+            return shaped_rewards(self.outcome, **common)
 
-        engagement = 0.01 * (prev_dist - curr_dist) - 0.005
-        if self.truncated:
-            engagement -= 0.5
-        return {"knight": float(r_shaped + engagement), "boss": float(-r_shaped + engagement)}
+        if self.reward_mode == "draw_penalty":
+            return draw_penalty_rewards(
+                self.outcome,
+                **common,
+                penalty=self.draw_penalty,
+            )
+
+        if self.reward_mode == "tactical":
+            return tactical_rewards(
+                self.outcome,
+                **common,
+                events=events,
+                knight_move_distance_delta=knight_move_distance_delta,
+                draw_penalty=self.draw_penalty,
+            )
+
+        if self.reward_mode == "combat":
+            return combat_rewards(
+                self.outcome,
+                **common,
+                prev_distance=prev_dist,
+                curr_distance=curr_dist,
+            )
+
+        raise ValueError(f"Unsupported reward mode: {self.reward_mode}")
 
     def _observe(self, agent: str) -> dict[str, np.ndarray]:
         opponent = "boss" if agent == "knight" else "knight"
@@ -470,7 +528,7 @@ class ProposalCombatEnv(ParallelEnv):
             ],
             dtype=np.float32,
         )
-        k_stats = (self.knight_atk_dmg, 0, 1, 0, 1, 0)
+        k_stats = (self.knight_atk_dmg, 0, self.knight_atk_range, 0, 1, 0)
         b_stats = (self.boss_atk_dmg, max(self.boss_spec1_dmg, self.boss_spec2_dmg), 1, self.special1_range, 1, 2)
         own_st, opp_st = (k_stats, b_stats) if agent == "knight" else (b_stats, k_stats)
         combat_stats = np.array([*own_st, *opp_st], dtype=np.float32)
@@ -487,7 +545,11 @@ class ProposalCombatEnv(ParallelEnv):
 
         spec1_act = 1.0 if (self.pending_special and self.pending_special["kind"] == "special1") else 0.0
         spec2_act = 1.0 if (self.pending_special and self.pending_special["kind"] == "special2") else 0.0
-        sr, sc = self.pending_special["origin"] if (self.pending_special and self.pending_special["kind"] == "special2") else self.pos["boss"]
+        sr, sc = (
+            self.pending_special["origin"]
+            if self.pending_special is not None
+            else self.pos["boss"]
+        )
         proposal_state = np.array(
             [
                 self.knight_invuln / max(1, self.invincibility_frames),
@@ -609,8 +671,10 @@ class ProposalHeuristicKnight(BaseAgent):
         own = (round(float(pos[0]) * r_s), round(float(pos[1]) * c_s))
         opp = (round(float(pos[2]) * r_s), round(float(pos[3]) * c_s))
         dist = abs(own[0] - opp[0]) + abs(own[1] - opp[1])
+        cheb = max(abs(own[0] - opp[0]), abs(own[1] - opp[1]))
         hp_frac = float(observation["health_fraction"][0])
         atk_cd = float(observation["cooldowns"][0])
+        attack_range = int(round(float(observation["combat_stats"][2])))
         pstate = observation["proposal_state"]
         u_k = float(pstate[0])
         q_k = float(pstate[1])
@@ -624,7 +688,7 @@ class ProposalHeuristicKnight(BaseAgent):
             return int(ProposalKnightAction.DODGE)
         if can_heal and q_k > 1e-6 and hp_frac <= 0.45:
             return int(ProposalKnightAction.HEAL)
-        if atk_cd <= 1e-6 and dist <= 1:
+        if atk_cd <= 1e-6 and cheb <= attack_range:
             return int(ProposalKnightAction.ATTACK)
         if own == opp:
             return int(ProposalKnightAction.WAIT)

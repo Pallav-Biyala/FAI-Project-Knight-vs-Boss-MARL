@@ -172,8 +172,10 @@ def test_combat_reward_mode_adds_approach_and_anti_stall_penalties():
     r_back = combat_rewards(
         None,
         truncated=False,
-        knight_damage_received_delta=0,
-        boss_damage_received_delta=0,
+        prev_knight_health=150,
+        curr_knight_health=150,
+        prev_boss_health=150,
+        curr_boss_health=150,
         knight_max_health=150,
         boss_max_health=150,
         prev_distance=1,
@@ -186,8 +188,10 @@ def test_combat_reward_mode_adds_approach_and_anti_stall_penalties():
     r_close = combat_rewards(
         None,
         truncated=False,
-        knight_damage_received_delta=0,
-        boss_damage_received_delta=0,
+        prev_knight_health=150,
+        curr_knight_health=150,
+        prev_boss_health=150,
+        curr_boss_health=150,
         knight_max_health=150,
         boss_max_health=150,
         prev_distance=6,
@@ -200,8 +204,10 @@ def test_combat_reward_mode_adds_approach_and_anti_stall_penalties():
     r_to = combat_rewards(
         Outcome.DRAW,
         truncated=True,
-        knight_damage_received_delta=0,
-        boss_damage_received_delta=0,
+        prev_knight_health=150,
+        curr_knight_health=150,
+        prev_boss_health=150,
+        curr_boss_health=150,
         knight_max_health=150,
         boss_max_health=150,
         prev_distance=4,
@@ -223,8 +229,10 @@ def test_draw_penalty_reward_mode_penalizes_draws_without_step_bias():
     r_step = draw_penalty_rewards(
         None,
         truncated=False,
-        knight_damage_received_delta=0,
-        boss_damage_received_delta=0,
+        prev_knight_health=150,
+        curr_knight_health=150,
+        prev_boss_health=150,
+        curr_boss_health=150,
         knight_max_health=150,
         boss_max_health=150,
     )
@@ -233,8 +241,10 @@ def test_draw_penalty_reward_mode_penalizes_draws_without_step_bias():
     r_draw = draw_penalty_rewards(
         Outcome.DRAW,
         truncated=True,
-        knight_damage_received_delta=0,
-        boss_damage_received_delta=0,
+        prev_knight_health=150,
+        curr_knight_health=150,
+        prev_boss_health=150,
+        curr_boss_health=150,
         knight_max_health=150,
         boss_max_health=150,
     )
@@ -243,8 +253,10 @@ def test_draw_penalty_reward_mode_penalizes_draws_without_step_bias():
     r_win = draw_penalty_rewards(
         Outcome.KNIGHT_WIN,
         truncated=False,
-        knight_damage_received_delta=0,
-        boss_damage_received_delta=30,
+        prev_knight_health=120,
+        curr_knight_health=120,
+        prev_boss_health=150,
+        curr_boss_health=150,
         knight_max_health=150,
         boss_max_health=150,
     )

@@ -10,4 +10,5 @@ regimes:
   - fixed_opponent
   - simultaneous_learning
   - alternating_learning
+  - population_self_play
 output_root: experiments

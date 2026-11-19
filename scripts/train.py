@@ -11,7 +11,7 @@ from knight_boss.marl.proposal_env import (
     ProposalCombatEnv,
     ProposalHeuristicBoss,
 )
-from knight_boss.marl.rewards import REWARD_MODES
+from knight_boss.marl.rewards import PROPOSAL_REWARD_MODES
 from knight_boss.training.config import PPOConfig
 from knight_boss.training.regimes import REGIMES, TrainingRunConfig, run_training
 
@@ -39,7 +39,7 @@ def main() -> None:
     parser.add_argument("--boss-checkpoint", help="Resume Boss policy from this checkpoint.")
     parser.add_argument(
         "--reward-mode",
-        choices=REWARD_MODES,
+        choices=PROPOSAL_REWARD_MODES,
         help="Override reward mode (default: terminal).",
     )
     parser.add_argument(
@@ -111,6 +111,7 @@ def main() -> None:
             reward_mode=run_config.reward_mode,
             shaping_weight=run_config.shaping_weight,
             draw_penalty=run_config.draw_penalty,
+            gamma=ppo_config.gamma,
         )
         heuristic_factory = lambda s: ProposalHeuristicBoss(
             rows=game_config.rows,

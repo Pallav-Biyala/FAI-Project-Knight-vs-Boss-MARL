@@ -11,6 +11,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from copy import deepcopy
 
 import yaml
 
@@ -19,16 +20,18 @@ from knight_boss.agents.ppo_agent import PPOAgent
 from knight_boss.evaluation.evaluator import evaluate_policies
 from knight_boss.game.config import GameConfig
 from knight_boss.marl.parallel_env import KnightBossParallelEnv
-from knight_boss.marl.rewards import REWARD_MODES
+from knight_boss.marl.rewards import PROPOSAL_REWARD_MODES
 from knight_boss.training.checkpointing import load_checkpoint, save_checkpoint
 from knight_boss.training.config import PPOConfig
 from knight_boss.training.trainer import MultiAgentPPOTrainer
+from knight_boss.training.opponent_pool import OpponentPool
 
 
 REGIMES = (
     "fixed_opponent",
     "simultaneous_learning",
     "alternating_learning",
+    "population_self_play",
 )
 
 
@@ -56,6 +59,10 @@ class TrainingRunConfig:
     # loses quickly, so an episode budget gives very few PPO updates.
     training_steps: int | None = None
     phase_steps: int | None = None
+    # Population self-play settings.
+    population_size: int = 10
+    phase_updates: int = 5
+    snapshot_interval_updates: int = 5
 
     def __post_init__(self) -> None:
         if self.regime not in REGIMES:
@@ -88,12 +95,18 @@ class TrainingRunConfig:
                 raise ValueError(
                     "alternating_learning requires positive phase_episodes."
                 )
-        if self.reward_mode not in REWARD_MODES:
-            raise ValueError(f"reward_mode must be one of {REWARD_MODES}.")
+        if self.reward_mode not in PROPOSAL_REWARD_MODES:
+            raise ValueError(f"reward_mode must be one of {PROPOSAL_REWARD_MODES}.")
         if not isfinite(self.shaping_weight) or self.shaping_weight < 0:
             raise ValueError("shaping_weight must be non-negative and finite.")
         if not isfinite(self.draw_penalty) or self.draw_penalty < 0:
             raise ValueError("draw_penalty must be non-negative and finite.")
+        if self.population_size < 1:
+            raise ValueError("population_size must be positive.")
+        if self.phase_updates < 1:
+            raise ValueError("phase_updates must be positive.")
+        if self.snapshot_interval_updates < 1:
+            raise ValueError("snapshot_interval_updates must be positive.")
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "TrainingRunConfig":
@@ -125,6 +138,11 @@ class TrainingRunConfig:
                 int(data["training_steps"]) if "training_steps" in data else None
             ),
             phase_steps=int(data["phase_steps"]) if "phase_steps" in data else None,
+            population_size=int(data.get("population_size", 10)),
+            phase_updates=int(data.get("phase_updates", 5)),
+            snapshot_interval_updates=int(
+                data.get("snapshot_interval_updates", 5)
+            ),
         )
 
 
@@ -141,6 +159,8 @@ def run_training(
     env_factory: Callable[[float | None, float | None], KnightBossParallelEnv] | None = None,
     heuristic_factory: Callable[[int], HeuristicAgent] | None = None,
 ) -> dict[str, Any]:
+    if run_config.reward_mode == "tactical" and env_factory is None:
+        raise ValueError("The tactical reward mode requires the proposal environment.")
     env = (
         env_factory(alpha_h, alpha_d)
         if env_factory is not None
@@ -151,6 +171,7 @@ def run_training(
             reward_mode=run_config.reward_mode,
             shaping_weight=run_config.shaping_weight,
             draw_penalty=run_config.draw_penalty,
+            gamma=ppo_config.gamma,
         )
     )
     trainer = MultiAgentPPOTrainer(env, ppo_config, seed=seed)
@@ -289,35 +310,88 @@ def run_training(
                 )
 
             phase_end = min(budget_total, progress() + phase_length)
+
+            # Population self-play state.
+            population_pool = None
+            population_phase_agent = "knight"
+            population_phase_updates_done = 0
+            population_boss_opponent = None
+            population_frozen_knight = None
+            population_knight_policy = None
+            population_boss_policy = None
+
+            if run_config.regime == "population_self_play":
+                boss_policy = trainer.policies["boss"]
+                if not isinstance(boss_policy, PPOAgent):
+                    raise TypeError(
+                        "population_self_play requires a PPO Boss policy."
+                    )
+                population_knight_policy = trainer.policies["knight"]
+                population_boss_policy = boss_policy
+
+                population_pool = OpponentPool(
+                    max_size=run_config.population_size,
+                    seed=seed + 10_000,
+                )
+                # Include the initial Boss as the first historical opponent.
+                population_pool.add(boss_policy)
+                population_boss_opponent = population_pool.sample()
             best_validation_win_rate = -1.0
             while progress() < budget_total:
                 episodes_before = trainer.completed_episodes
-                if run_config.regime == "alternating_learning":
+                if run_config.regime == "population_self_play":
+                    trainable_agents = (population_phase_agent,)
+                    phase = (
+                        "knight_vs_population"
+                        if population_phase_agent == "knight"
+                        else "boss_vs_frozen_knight"
+                    )
+                    target = budget_total
+
+                elif run_config.regime == "alternating_learning":
                     trainable_agents = (alternating_agent,)
                     phase = alternating_agent
                     target = min(budget_total, phase_end)
+
                 elif run_config.regime == "fixed_opponent":
                     trainable_agents = ("knight",)
                     phase = "knight_vs_heuristic"
                     target = budget_total
+
                 else:
                     trainable_agents = ("knight", "boss")
                     phase = "simultaneous"
                     target = budget_total
 
-                if use_steps:
-                    metrics = trainer.train_rollout(
-                        steps=min(
-                            ppo_config.rollout_steps,
-                            target - trainer.total_environment_steps,
-                        ),
-                        trainable_agents=trainable_agents,
-                    )
-                else:
-                    metrics = trainer.train_rollout(
-                        trainable_agents=trainable_agents,
-                        stop_after_episodes=target,
-                    )
+                is_population = run_config.regime == "population_self_play"
+                if is_population:
+                    if population_phase_agent == "knight":
+                        trainer.policies["knight"] = population_knight_policy
+                        trainer.policies["boss"] = population_boss_opponent
+                    else:
+                        trainer.policies["knight"] = population_frozen_knight
+                        trainer.policies["boss"] = population_boss_policy
+
+                try:
+                    if use_steps:
+                        metrics = trainer.train_rollout(
+                            steps=min(
+                                ppo_config.rollout_steps,
+                                target - trainer.total_environment_steps,
+                            ),
+                            trainable_agents=trainable_agents,
+                            stop_at_episode_end=is_population,
+                        )
+                    else:
+                        metrics = trainer.train_rollout(
+                            trainable_agents=trainable_agents,
+                            stop_after_episodes=target,
+                            stop_at_episode_end=is_population,
+                        )
+                finally:
+                    if is_population:
+                        trainer.policies["knight"] = population_knight_policy
+                        trainer.policies["boss"] = population_boss_policy
                 episode_summary = _summarize_training_episodes(
                     trainer.last_rollout_episodes
                 )
@@ -431,6 +505,42 @@ def run_training(
                         "boss" if alternating_agent == "knight" else "knight"
                     )
                     phase_end = min(budget_total, progress() + phase_length)
+
+                # Population self-play: snapshot and alternate training phases.
+                if is_population:
+                    population_phase_updates_done += 1
+
+                    # Save periodic snapshots of the improving Boss.
+                    if population_phase_agent == "boss":
+                        boss_updates = population_boss_policy.update_count
+
+                        if (
+                            boss_updates
+                            % run_config.snapshot_interval_updates
+                            == 0
+                        ):
+                            population_pool.add(population_boss_policy)
+
+                    # Switch agents after the configured number of updates.
+                    if (
+                        population_phase_updates_done
+                        >= run_config.phase_updates
+                    ):
+                        population_phase_updates_done = 0
+
+                        if population_phase_agent == "knight":
+                            # Freeze the current Knight for Boss training.
+                            population_frozen_knight = deepcopy(
+                                population_knight_policy
+                            )
+                            population_frozen_knight.policy.eval()
+                            population_phase_agent = "boss"
+
+                        else:
+                            # Knight faces a newly sampled historical Boss.
+                            population_boss_opponent = population_pool.sample()
+                            population_frozen_knight = None
+                            population_phase_agent = "knight"
 
     for agent, policy in trainer.policies.items():
         if hasattr(policy, "update_count"):

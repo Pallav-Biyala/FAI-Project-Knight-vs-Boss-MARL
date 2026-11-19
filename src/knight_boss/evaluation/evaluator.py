@@ -42,6 +42,7 @@ def evaluate_policies(
         if env_factory is not None
         else KnightBossParallelEnv(game_config, alpha_h=alpha_h, alpha_d=alpha_d)
     )
+    _check_action_space_matches(policies, env)
     episode_results: list[EpisodeMetrics] = []
 
     # Clone once upfront so the original input policies are never modified or reseeded
@@ -101,6 +102,32 @@ def evaluate_policies(
     return episode_results, summarize_episodes(
         episode_results, confidence=confidence
     )
+
+
+def _check_action_space_matches(
+    policies: Mapping[str, object], env: object
+) -> None:
+    """Fail fast when a policy and the evaluation environment disagree.
+
+    Proposal and tactical policies expose more actions than the base
+    environment. Evaluating them without a matching ``env_factory`` would
+    silently score a different game (or crash mid-episode) and invalidate the
+    results, so this is checked up front.
+    """
+    action_space = getattr(env, "action_space", None)
+    if action_space is None:
+        return
+    for agent in ("knight", "boss"):
+        policy = policies[agent]
+        if not isinstance(policy, PPOAgent):
+            continue
+        expected = action_space(agent).n
+        if policy.n_actions != expected:
+            raise ValueError(
+                f"Policy for {agent} has {policy.n_actions} actions but the "
+                f"evaluation environment exposes {expected}; pass an "
+                f"env_factory matching the training environment."
+            )
 
 
 def _clone_policy(policy: object, *, rows: int, columns: int, seed: int) -> object:

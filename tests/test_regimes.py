@@ -283,3 +283,46 @@ def test_alternating_step_budget_requires_phase_steps(tmp_path):
             training_steps=32,
             phase_episodes=None,
         )
+
+def test_population_self_play_alternates_agents_and_saves_checkpoints(tmp_path):
+    result = run_training(
+        run_config(
+            tmp_path,
+            "population_self_play",
+            training_steps=32,
+            phase_updates=1,
+            snapshot_interval_updates=1,
+            population_size=3,
+        ),
+        tiny_game_config(),
+        tiny_ppo_config(),
+        seed=15,
+    )
+
+    run_dir = tmp_path / "population_self_play" / result["run_id"]
+
+    assert result["environment_steps"] == 32
+
+    assert (run_dir / "checkpoints" / "knight-final.pt").is_file()
+    assert (run_dir / "checkpoints" / "boss-final.pt").is_file()
+
+    with (run_dir / "training.csv").open(
+        newline="", encoding="utf-8"
+    ) as log_file:
+        rows = list(csv.DictReader(log_file))
+
+    assert [row["agent"] for row in rows] == [
+        "knight",
+        "boss",
+        "knight",
+        "boss",
+    ]
+
+    assert [row["phase"] for row in rows] == [
+        "knight_vs_population",
+        "boss_vs_frozen_knight",
+        "knight_vs_population",
+        "boss_vs_frozen_knight",
+    ]
+
+    assert [int(row["update"]) for row in rows] == [1, 1, 2, 2]

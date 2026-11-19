@@ -58,6 +58,7 @@ class GameConfig:
     alpha_d: float = 1.0
     max_steps: int = 300
     heavy_windup_steps: int = 1
+    proposal_knight_basic_attack_chebyshev_range: int = 2
 
     def __post_init__(self) -> None:
         if self.rows < 2 or self.columns < 2:
@@ -73,6 +74,8 @@ class GameConfig:
             raise ValueError("max_steps must be positive.")
         if self.heavy_windup_steps < 1:
             raise ValueError("heavy_windup_steps must be at least one.")
+        if self.proposal_knight_basic_attack_chebyshev_range < 0:
+            raise ValueError("Proposal Knight attack range must be non-negative.")
         board = Board(self.rows, self.columns)
         if not board.in_bounds(self.knight_position):
             raise ValueError("Knight position must be within the board.")
@@ -91,6 +94,7 @@ class GameConfig:
         board = data.get("board", {})
         positions = data.get("initial_positions", {})
         rules = data.get("rules", {})
+        proposal = data.get("proposal", {})
         fighters = data.get("fighters", {})
         knight_data = fighters.get("knight", {})
         boss_data = fighters.get("boss", {})
@@ -105,4 +109,7 @@ class GameConfig:
             alpha_d=float(data.get("alpha_d", 1.0)),
             max_steps=int(rules.get("max_steps", 300)),
             heavy_windup_steps=int(rules.get("heavy_windup_steps", 1)),
+            proposal_knight_basic_attack_chebyshev_range=int(
+                proposal.get("knight_basic_attack_chebyshev_range", 2)
+            ),
         )

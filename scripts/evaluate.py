@@ -68,6 +68,7 @@ def main() -> None:
             reward_mode="shaped",
             shaping_weight=0.5,
             draw_penalty=0.0,
+            gamma=ppo_config.gamma,
         )
     else:
         env = KnightBossParallelEnv(game_config)
@@ -151,6 +152,7 @@ def main() -> None:
                 reward_mode="shaped",
                 shaping_weight=0.5,
                 draw_penalty=0.0,
+                gamma=ppo_config.gamma,
             )
         else:
             env_factory = None

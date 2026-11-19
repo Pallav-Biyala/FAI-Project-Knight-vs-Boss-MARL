@@ -23,3 +23,5 @@ fighters:
 rules:
   max_steps: 300
   heavy_windup_steps: 1
+proposal:
+  knight_basic_attack_chebyshev_range: 2

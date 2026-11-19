@@ -24,7 +24,7 @@ def test_default_grid_has_121_independent_configurations():
     assert len({alpha_d for _, alpha_d in grid}) == 11
     assert (0.5, 3.0) in grid
     assert (3.0, 0.5) in grid
-    assert config.expected_run_count == 1815
+    assert config.expected_run_count == 2420
 
 
 def test_parameter_grid_does_not_combine_multipliers():
