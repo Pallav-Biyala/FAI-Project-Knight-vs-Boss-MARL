@@ -220,6 +220,14 @@ def run_training(
         "game_config": asdict(game_config),
         "ppo_config": asdict(ppo_config),
         "run_config": asdict(run_config),
+        "action_masking": (
+            "state_derived_v1"
+            if all(
+                "action_mask" in trainer.observations[agent]
+                for agent in ("knight", "boss")
+            )
+            else None
+        ),
         "status": "running",
     }
     _write_json(metadata_path, metadata)
@@ -279,6 +287,18 @@ def run_training(
         "average_knight_damage_received",
         "average_boss_damage_dealt",
         "average_boss_damage_received",
+        "average_invalid_knight_moves",
+        "average_special2_casts",
+        "average_special2_hits",
+        "average_special2_blocks",
+        "average_special2_escapes",
+        "average_knight_heal_noops",
+        "average_knight_heals",
+        "average_knight_attack_attempts",
+        "average_knight_attack_hits",
+        "special2_hit_rate",
+        "special2_block_rate",
+        "invalid_knight_moves_per_step",
     )
     with log_path.open("w", newline="", encoding="utf-8") as log_file:
         writer = csv.DictWriter(log_file, fieldnames=fields)
@@ -596,6 +616,7 @@ def _save_run_checkpoint(
             "seed": run_metadata["seed"],
             "alpha_h": run_metadata["alpha_h"],
             "alpha_d": run_metadata["alpha_d"],
+            "action_masking": run_metadata["action_masking"],
         },
     )
 

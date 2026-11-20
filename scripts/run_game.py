@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import json
 
 from knight_boss.agents import HeuristicAgent, RandomAgent
 from knight_boss.agents.ppo_agent import PPOAgent
@@ -22,6 +23,34 @@ from knight_boss.training.checkpointing import load_checkpoint
 from knight_boss.training.config import PPOConfig
 from knight_boss.visualization.battle_replay import BattleReplayRecorder
 
+def _proposal_snapshot(env):
+    pending = env.pending_special
+
+    if pending is not None:
+        pending = {
+            key: list(value) if isinstance(value, tuple) else value
+            for key, value in pending.items()
+        }
+
+    return {
+        "step": env.step_count,
+        "positions": {
+            agent: list(position)
+            for agent, position in env.pos.items()
+        },
+        "hp": dict(env.hp),
+        "attack_cooldowns": dict(env.atk_cd),
+        "knight_invulnerability": env.knight_invuln,
+        "knight_dodge_cooldown": env.knight_dodge_cd,
+        "knight_heal_charges": env.knight_heal_charges,
+        "pending_special": pending,
+        "damage_dealt": dict(env.damage_dealt),
+        "damage_received": dict(env.damage_received),
+        "event_counts": dict(env.events_count),
+        "outcome": env.outcome.value if env.outcome else None,
+        "terminated": env.terminated,
+        "truncated": env.truncated,
+    }
 
 def _agent(kind: str, role: str, *, rows: int, columns: int, seed: int, env_type: str = "proposal"):
     if env_type == "proposal":
@@ -140,6 +169,22 @@ def main() -> None:
         else None
     )
 
+    proposal_replay = None
+    if args.record and args.env_type == "proposal":
+        proposal_replay = {
+            "seed": args.seed,
+            "policies": policy_labels,
+            "deterministic": args.deterministic,
+            "frames": [
+                {
+                    "state": _proposal_snapshot(env),
+                    "actions": None,
+                    "rewards": None,
+                    "events": [],
+                }
+            ],
+        }
+
     if args.render:
         print("Initial state:")
         print(env.render())
@@ -149,15 +194,33 @@ def main() -> None:
         for agent in env.agents:
             policy = policies[agent]
             if isinstance(policy, PPOAgent):
-                actions[agent] = policy.act(observations[agent], deterministic=args.deterministic)
+                actions[agent] = policy.act(
+                    observations[agent],
+                    deterministic=args.deterministic,
+                )
             else:
                 actions[agent] = policy.act(observations[agent])
 
         observations, rewards, terminations, truncations, infos = env.step(actions)
+
+        if proposal_replay is not None:
+            proposal_replay["frames"].append({
+                "state": _proposal_snapshot(env),
+                "actions": {
+                    "knight": ProposalKnightAction(actions["knight"]).name,
+                    "boss": ProposalBossAction(actions["boss"]).name,
+                },
+                "rewards": rewards,
+                "events": list(infos["knight"]["events"]),
+                "terminations": terminations,
+                "truncations": truncations,
+            })
+
         if recorder is not None:
             recorder.record_step(
                 env.engine, actions, rewards, infos, terminations, truncations
             )
+
         if args.render:
             action_names = {
                 agent: (
@@ -178,6 +241,14 @@ def main() -> None:
     print(f"Damage received: Knight={infos['knight']['damage_received']}, "
           f"Boss={infos['boss']['damage_received']}")
     print(f"Terminated: {terminations}; truncated: {truncations}")
+    if proposal_replay is not None:
+        replay_path = Path(args.record)
+        replay_path.parent.mkdir(parents=True, exist_ok=True)
+        replay_path.write_text(
+            json.dumps(proposal_replay, indent=2),
+            encoding="utf-8",
+        )
+        print(f"Proposal replay: {replay_path}")
     if recorder is not None:
         replay_path = recorder.save(args.record)
         print(f"Replay: {replay_path}")

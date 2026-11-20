@@ -41,7 +41,12 @@ def observation_to_vector(observation: Mapping[str, np.ndarray]) -> np.ndarray:
         / np.float32(OBSERVATION_SCALES.get(field, 1.0))
         for field in OBSERVATION_FIELDS
     ]
-    for extra_field in sorted(set(observation) - set(OBSERVATION_FIELDS)):
+    # Action masks control the policy distribution, not the actor/critic input.
+    # Keeping them out preserves the observation architecture; PPO stores each
+    # mask alongside its transition and reuses it when recomputing log-probs.
+    for extra_field in sorted(
+        set(observation) - set(OBSERVATION_FIELDS) - {"action_mask"}
+    ):
         chunks.append(np.asarray(observation[extra_field], dtype=np.float32).reshape(-1))
     vector = np.concatenate(chunks)
     if not np.all(np.isfinite(vector)):

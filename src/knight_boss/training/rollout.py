@@ -15,6 +15,7 @@ class RolloutBatch:
     old_log_probabilities: np.ndarray
     advantages: np.ndarray
     returns: np.ndarray
+    action_masks: np.ndarray | None = None
 
 
 class RolloutBuffer:
@@ -25,6 +26,7 @@ class RolloutBuffer:
         self.dones: list[bool] = []
         self.values: list[float] = []
         self.old_log_probabilities: list[float] = []
+        self.action_masks: list[np.ndarray | None] = []
 
     def add(
         self,
@@ -34,6 +36,7 @@ class RolloutBuffer:
         done: bool,
         value: float,
         old_log_probability: float,
+        action_mask: np.ndarray | None = None,
     ) -> None:
         self.observations.append(np.asarray(observation, dtype=np.float32).copy())
         self.actions.append(int(action))
@@ -41,6 +44,11 @@ class RolloutBuffer:
         self.dones.append(bool(done))
         self.values.append(float(value))
         self.old_log_probabilities.append(float(old_log_probability))
+        self.action_masks.append(
+            None
+            if action_mask is None
+            else np.asarray(action_mask, dtype=np.bool_).copy()
+        )
 
     def compute(
         self, *, last_value: float, gamma: float, gae_lambda: float
@@ -58,6 +66,14 @@ class RolloutBuffer:
             delta = rewards[index] + gamma * next_value * nonterminal - values[index]
             gae = delta + gamma * gae_lambda * nonterminal * gae
             advantages[index] = gae
+        action_masks = None
+        if any(mask is not None for mask in self.action_masks):
+            shapes = {
+                mask.shape for mask in self.action_masks if mask is not None
+            }
+            if len(shapes) != 1 or any(mask is None for mask in self.action_masks):
+                raise ValueError("A rollout must use consistently shaped action masks.")
+            action_masks = np.stack(self.action_masks).astype(np.bool_)
         return RolloutBatch(
             observations=np.stack(self.observations).astype(np.float32),
             actions=np.asarray(self.actions, dtype=np.int64),
@@ -69,4 +85,5 @@ class RolloutBuffer:
             ),
             advantages=advantages,
             returns=advantages + values,
+            action_masks=action_masks,
         )

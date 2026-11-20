@@ -41,9 +41,11 @@ class PPOAgent:
         *,
         seed: int,
         n_actions: int | None = None,
+        respect_action_masks: bool = True,
     ) -> None:
         self.observation_size = observation_size
         self.n_actions = n_actions or action_count()
+        self.respect_action_masks = bool(respect_action_masks)
         self.config = config
         self.device = torch.device(config.device)
         if self.device.type == "cuda" and not torch.cuda.is_available():
@@ -83,6 +85,10 @@ class PPOAgent:
         tensor = torch.as_tensor(vector, dtype=torch.float32, device=self.device)
         with torch.no_grad():
             logits, _ = self.policy(tensor)
+            logits = self._masked_logits(
+                logits,
+                observation.get("action_mask") if self.respect_action_masks else None,
+            )
             if deterministic:
                 action_tensor = torch.argmax(logits, dim=-1)
             else:
@@ -109,6 +115,10 @@ class PPOAgent:
         tensor = torch.as_tensor(vector, dtype=torch.float32, device=self.device)
         with torch.no_grad():
             logits, value = self.policy(tensor)
+            logits = self._masked_logits(
+                logits,
+                observation.get("action_mask") if self.respect_action_masks else None,
+            )
             log_probabilities = torch.log_softmax(logits, dim=-1)
             if deterministic:
                 action_tensor = torch.argmax(logits, dim=-1)
@@ -138,6 +148,7 @@ class PPOAgent:
         old_log_probabilities: np.ndarray,
         advantages: np.ndarray,
         returns: np.ndarray,
+        action_masks: np.ndarray | None = None,
     ) -> dict[str, float]:
         count = len(observations)
         if count == 0:
@@ -163,6 +174,19 @@ class PPOAgent:
             advantages, dtype=torch.float32, device=device
         )
         returns_tensor = torch.as_tensor(returns, dtype=torch.float32, device=device)
+        action_mask_tensor = None
+        if action_masks is not None:
+            action_mask_tensor = torch.as_tensor(
+                action_masks, dtype=torch.bool, device=device
+            )
+            if action_mask_tensor.shape != (count, self.n_actions):
+                raise ValueError("PPO action masks must have shape (samples, n_actions).")
+            if not torch.all(action_mask_tensor.any(dim=1)):
+                raise ValueError("Every PPO sample must allow at least one action.")
+            if not torch.all(
+                action_mask_tensor.gather(1, action_tensor.unsqueeze(1))
+            ):
+                raise ValueError("A rollout contains an action disallowed by its mask.")
         advantage_tensor = (advantage_tensor - advantage_tensor.mean()) / (
             advantage_tensor.std(unbiased=False) + 1e-8
         )
@@ -182,6 +206,8 @@ class PPOAgent:
             for start in range(0, usable_count, self.config.batch_size):
                 indices = order[start : start + self.config.batch_size]
                 logits, values = self.policy(obs_tensor[indices])
+                if action_mask_tensor is not None:
+                    logits = self._masked_logits(logits, action_mask_tensor[indices])
                 distribution = Categorical(logits=logits)
                 new_log_probabilities = distribution.log_prob(action_tensor[indices])
                 ratios = torch.exp(new_log_probabilities - old_log_tensor[indices])
@@ -224,3 +250,18 @@ class PPOAgent:
             "entropy": float(means[2]),
             "total_loss": float(means[3]),
         }
+
+    def _masked_logits(
+        self, logits: torch.Tensor, action_mask: np.ndarray | torch.Tensor | None
+    ) -> torch.Tensor:
+        if action_mask is None:
+            return logits
+        mask = torch.as_tensor(action_mask, dtype=torch.bool, device=logits.device)
+        if mask.shape != logits.shape:
+            raise ValueError(
+                f"Action mask shape {tuple(mask.shape)} does not match logits "
+                f"{tuple(logits.shape)}."
+            )
+        if not torch.all(mask.any(dim=-1)):
+            raise ValueError("Every state must allow at least one action.")
+        return logits.masked_fill(~mask, torch.finfo(logits.dtype).min)

@@ -4,10 +4,12 @@ import pytest
 
 from knight_boss.game.types import Outcome
 from knight_boss.marl.rewards import (
+    PROPOSAL_REWARD_MODES,
     REWARD_MODES,
     combat_rewards,
     draw_penalty_rewards,
     shaped_rewards,
+    tactical_rewards,
     terminal_rewards,
 )
 
@@ -303,3 +305,64 @@ def test_combat_approach_term_is_symmetric():
 
     assert retreat["knight"] == retreat["boss"] == pytest.approx(-0.015)
     assert approach["knight"] == approach["boss"] == pytest.approx(0.005)
+
+
+def _tactical(events, *, move_delta=0, **overrides):
+    return tactical_rewards(
+        None,
+        events=events,
+        knight_move_distance_delta=move_delta,
+        **_common(**overrides),
+    )
+
+
+def test_tactical_mode_extends_the_base_reward_modes():
+    assert set(PROPOSAL_REWARD_MODES) == set(REWARD_MODES) | {"tactical"}
+
+
+def test_tactical_perfect_dodge_of_special_earns_a_bonus():
+    rewards = _tactical(
+        ("knight_dodge", "knight_dodged_damage", "boss_special2_blocked")
+    )
+    assert rewards["knight"] == pytest.approx(0.05)
+    assert rewards["boss"] == pytest.approx(-0.05)
+
+
+def test_tactical_dodge_scores_higher_than_taking_the_special():
+    dodge = _tactical(
+        ("knight_dodge", "knight_dodged_damage", "boss_special2_blocked")
+    )["knight"]
+    eaten = _tactical(
+        ("boss_special2_hit",),
+        prev_knight_health=150,
+        curr_knight_health=110,
+    )["knight"]
+    assert dodge > eaten
+    assert dodge > 0.0
+    assert eaten < 0.0
+
+
+def test_tactical_penalizes_a_real_special_hit_once():
+    rewards = _tactical(
+        ("boss_special1_hit",),
+        prev_knight_health=150,
+        curr_knight_health=100,
+    )
+    baseline = shaped_rewards(
+        None,
+        **_common(prev_knight_health=150, curr_knight_health=100),
+    )
+    assert rewards["knight"] == pytest.approx(baseline["knight"] - 0.10)
+
+
+def test_tactical_evasion_sidestep_still_rewards_the_knight():
+    rewards = _tactical(("knight_moved", "boss_attack_miss"))
+    assert rewards["knight"] == pytest.approx(0.04)
+    assert rewards["boss"] == pytest.approx(-0.04)
+
+
+def test_tactical_distance_pursuit_applies_only_to_the_knight():
+    rewards = _tactical((), move_delta=2)
+    assert rewards["knight"] == pytest.approx(-0.04)
+    assert rewards["boss"] == pytest.approx(0.0)
+    assert rewards["knight"] + rewards["boss"] != pytest.approx(0.0)

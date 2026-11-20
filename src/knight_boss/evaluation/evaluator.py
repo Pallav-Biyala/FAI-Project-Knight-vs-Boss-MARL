@@ -85,6 +85,7 @@ def evaluate_policies(
             ) = env.step(actions)
         knight_info = final_infos["knight"]
         boss_info = final_infos["boss"]
+        proposal_events = knight_info.get("proposal_events", {})
         episode_results.append(
             EpisodeMetrics(
                 episode_index=episode_index,
@@ -96,6 +97,20 @@ def evaluate_policies(
                 knight_damage_received=knight_info["damage_received"],
                 boss_damage_dealt=boss_info["damage_dealt"],
                 boss_damage_received=boss_info["damage_received"],
+                invalid_knight_moves=proposal_events.get(
+                    "knight_blocked_movement", 0
+                ),
+                special2_casts=proposal_events.get("boss_special2_cast", 0),
+                special2_hits=proposal_events.get("boss_special2_hit", 0),
+                special2_blocks=proposal_events.get("boss_special2_blocked", 0),
+                special2_escapes=proposal_events.get("knight_escaped_special2", 0),
+                knight_heal_noops=proposal_events.get("knight_heal_noop", 0),
+                knight_heals=proposal_events.get("knight_heal_used", 0),
+                knight_attack_attempts=(
+                    proposal_events.get("knight_attack_attempt", 0)
+                    + proposal_events.get("knight_attack_noop", 0)
+                ),
+                knight_attack_hits=proposal_events.get("knight_attack_hit", 0),
             )
         )
     env.close()
@@ -137,6 +152,7 @@ def _clone_policy(policy: object, *, rows: int, columns: int, seed: int) -> obje
             policy.config,
             seed=seed,
             n_actions=policy.n_actions,
+            respect_action_masks=policy.respect_action_masks,
         )
         clone.policy.load_state_dict(policy.policy.state_dict())
         return clone

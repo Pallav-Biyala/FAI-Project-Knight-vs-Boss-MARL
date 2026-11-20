@@ -3,7 +3,7 @@ import pytest
 from knight_boss.agents import HeuristicAgent
 from knight_boss.agents.ppo_agent import PPOAgent
 from knight_boss.evaluation.evaluator import evaluate_policies
-from knight_boss.evaluation.metrics import wilson_interval
+from knight_boss.evaluation.metrics import EpisodeMetrics, summarize_episodes, wilson_interval
 from knight_boss.evaluation.statistics import mean_ci_across_seeds
 from knight_boss.evaluation.thresholds import estimate_threshold_curves
 from knight_boss.game.config import GameConfig
@@ -33,6 +33,40 @@ def test_training_seed_statistics_do_not_treat_matches_as_training_runs():
     assert multiple["mean"] == pytest.approx(0.5)
     assert multiple["standard_deviation"] == pytest.approx(0.1)
     assert multiple["ci_lower"] < 0.5 < multiple["ci_upper"]
+
+
+def test_summary_includes_proposal_behavior_diagnostics():
+    episode = EpisodeMetrics(
+        episode_index=0,
+        evaluation_seed=1,
+        outcome="draw",
+        timeout=True,
+        episode_length=20,
+        knight_damage_dealt=40,
+        knight_damage_received=80,
+        boss_damage_dealt=80,
+        boss_damage_received=40,
+        invalid_knight_moves=2,
+        special2_casts=3,
+        special2_hits=2,
+        special2_blocks=1,
+        special2_escapes=1,
+        knight_heal_noops=1,
+        knight_heals=2,
+        knight_attack_attempts=4,
+        knight_attack_hits=3,
+    )
+    summary = summarize_episodes([episode])
+    assert summary.average_invalid_knight_moves == 2
+    assert summary.average_special2_hits == 2
+    assert summary.average_special2_blocks == 1
+    assert summary.average_special2_escapes == 1
+    assert summary.average_knight_heal_noops == 1
+    assert summary.average_knight_attack_attempts == 4
+    assert summary.average_knight_attack_hits == 3
+    assert summary.special2_hit_rate == pytest.approx(2 / 3)
+    assert summary.special2_block_rate == pytest.approx(1 / 3)
+    assert summary.invalid_knight_moves_per_step == pytest.approx(0.1)
 
 
 def test_evaluator_reports_outcomes_damage_and_timeout_separately():

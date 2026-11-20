@@ -16,6 +16,15 @@ class EpisodeMetrics:
     knight_damage_received: int
     boss_damage_dealt: int
     boss_damage_received: int
+    invalid_knight_moves: int = 0
+    special2_casts: int = 0
+    special2_hits: int = 0
+    special2_blocks: int = 0
+    special2_escapes: int = 0
+    knight_heal_noops: int = 0
+    knight_heals: int = 0
+    knight_attack_attempts: int = 0
+    knight_attack_hits: int = 0
 
 
 @dataclass(frozen=True)
@@ -41,6 +50,18 @@ class EvaluationSummary:
     average_knight_damage_received: float
     average_boss_damage_dealt: float
     average_boss_damage_received: float
+    average_invalid_knight_moves: float = 0.0
+    average_special2_casts: float = 0.0
+    average_special2_hits: float = 0.0
+    average_special2_blocks: float = 0.0
+    average_special2_escapes: float = 0.0
+    average_knight_heal_noops: float = 0.0
+    average_knight_heals: float = 0.0
+    average_knight_attack_attempts: float = 0.0
+    average_knight_attack_hits: float = 0.0
+    special2_hit_rate: float = 0.0
+    special2_block_rate: float = 0.0
+    invalid_knight_moves_per_step: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -77,6 +98,7 @@ def summarize_episodes(
     if not episodes:
         raise ValueError("At least one evaluation episode is required.")
     total = len(episodes)
+    special2_casts = sum(item.special2_casts for item in episodes)
     knight_wins = sum(item.outcome == "knight_win" for item in episodes)
     boss_wins = sum(item.outcome == "boss_win" for item in episodes)
     draws = sum(item.outcome == "draw" for item in episodes)
@@ -113,5 +135,36 @@ def summarize_episodes(
         ),
         average_boss_damage_received=(
             sum(item.boss_damage_received for item in episodes) / total
+        ),
+        average_invalid_knight_moves=(
+            sum(item.invalid_knight_moves for item in episodes) / total
+        ),
+        average_special2_casts=sum(item.special2_casts for item in episodes) / total,
+        average_special2_hits=sum(item.special2_hits for item in episodes) / total,
+        average_special2_blocks=sum(item.special2_blocks for item in episodes) / total,
+        average_special2_escapes=sum(item.special2_escapes for item in episodes) / total,
+        average_knight_heal_noops=sum(item.knight_heal_noops for item in episodes) / total,
+        average_knight_heals=sum(item.knight_heals for item in episodes) / total,
+        average_knight_attack_attempts=(
+            sum(item.knight_attack_attempts for item in episodes) / total
+        ),
+        average_knight_attack_hits=(
+            sum(item.knight_attack_hits for item in episodes) / total
+        ),
+        special2_hit_rate=(
+            sum(item.special2_hits for item in episodes) / special2_casts
+            if special2_casts
+            else 0.0
+        ),
+        special2_block_rate=(
+            sum(item.special2_blocks for item in episodes) / special2_casts
+            if special2_casts
+            else 0.0
+        ),
+        invalid_knight_moves_per_step=(
+            sum(item.invalid_knight_moves for item in episodes)
+            / sum(item.episode_length for item in episodes)
+            if sum(item.episode_length for item in episodes)
+            else 0.0
         ),
     )

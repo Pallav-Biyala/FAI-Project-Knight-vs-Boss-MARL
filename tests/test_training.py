@@ -203,6 +203,122 @@ def test_ppo_agent_act_matches_act_with_info():
     assert act_actions == info_actions
 
 
+def test_ppo_action_masks_match_sampling_log_probability_and_update():
+    from knight_boss.marl.proposal_env import ProposalCombatEnv
+
+    env = ProposalCombatEnv()
+    observation = env.reset(seed=4)[0]["knight"]
+    vector = observation_to_vector(observation)
+    mask = observation["action_mask"].astype(bool)
+    agent = PPOAgent(vector.size, small_ppo_config(), seed=17, n_actions=8)
+
+    for deterministic in (False, True):
+        for _ in range(30):
+            action, log_prob, _ = agent.act_with_info(
+                observation, deterministic=deterministic
+            )
+            assert mask[action]
+            logits, _ = agent.policy(torch.as_tensor(vector))
+            masked_logits = logits.masked_fill(
+                torch.as_tensor(~mask), torch.finfo(logits.dtype).min
+            )
+            expected = torch.distributions.Categorical(logits=masked_logits)
+            assert log_prob == pytest.approx(
+                float(expected.log_prob(torch.tensor(action)).detach())
+            )
+
+    action = int(np.flatnonzero(mask)[0])
+    logits, _ = agent.policy(torch.as_tensor(vector))
+    distribution = torch.distributions.Categorical(
+        logits=logits.masked_fill(
+            torch.as_tensor(~mask), torch.finfo(logits.dtype).min
+        )
+    )
+    old_log_probability = float(
+        distribution.log_prob(torch.tensor(action)).detach()
+    )
+    metrics = agent.update(
+        observations=np.stack([vector] * 4),
+        actions=np.full(4, action, dtype=np.int64),
+        old_log_probabilities=np.full(4, old_log_probability, dtype=np.float32),
+        advantages=np.array([1.0, -1.0, 0.5, -0.5], dtype=np.float32),
+        returns=np.zeros(4, dtype=np.float32),
+        action_masks=np.stack([mask] * 4),
+    )
+    assert agent.update_count == 1
+    assert all(np.isfinite(value) for value in metrics.values())
+
+    edge_env = ProposalCombatEnv(
+        GameConfig(knight_position=(0, 0), boss_position=(8, 8))
+    )
+    edge_observation = edge_env.reset(seed=5)[0]["knight"]
+    for deterministic in (False, True):
+        for _ in range(30):
+            action = int(agent.act(edge_observation, deterministic=deterministic))
+            assert action not in (2, 0)  # UP and LEFT are out of bounds here.
+            assert action != 7  # HEAL has no effect at full health.
+
+
+def test_ppo_rejects_a_rollout_action_disallowed_by_its_mask():
+    config = small_ppo_config()
+    agent = PPOAgent(3, config, seed=18, n_actions=2)
+    with pytest.raises(ValueError, match="disallowed"):
+        agent.update(
+            observations=np.zeros((1, 3), dtype=np.float32),
+            actions=np.array([1]),
+            old_log_probabilities=np.array([0.0]),
+            advantages=np.array([1.0]),
+            returns=np.array([1.0]),
+            action_masks=np.array([[True, False]]),
+        )
+
+
+def test_historical_checkpoint_audit_can_reproduce_unmasked_action_selection():
+    from knight_boss.marl.proposal_env import ProposalCombatEnv
+
+    observation = ProposalCombatEnv(
+        GameConfig(knight_position=(0, 0), boss_position=(8, 8))
+    ).reset(seed=0)[0]["knight"]
+    vector_size = observation_to_vector(observation).size
+    unmasked = PPOAgent(
+        vector_size,
+        small_ppo_config(),
+        seed=19,
+        n_actions=8,
+        respect_action_masks=False,
+    )
+    with torch.no_grad():
+        unmasked.policy.policy_head.weight.zero_()
+        unmasked.policy.policy_head.bias.zero_()
+        unmasked.policy.policy_head.bias[2] = 1.0
+    assert int(unmasked.act(observation, deterministic=True)) == 2
+
+
+def test_proposal_trainer_collects_and_optimizes_with_action_masks():
+    from knight_boss.marl.proposal_env import ProposalCombatEnv
+
+    config = small_ppo_config(rollout_steps=8)
+    trainer = MultiAgentPPOTrainer(
+        ProposalCombatEnv(), config, seed=21
+    )
+    batches = trainer.collect_rollout(steps=8)
+    assert set(batches) == {"knight", "boss"}
+    for agent in ("knight", "boss"):
+        batch = batches[agent]
+        assert batch.action_masks is not None
+        assert batch.action_masks.shape == (8, 8)
+        assert np.all(batch.action_masks.any(axis=1))
+        assert np.all(
+            batch.action_masks[np.arange(8), batch.actions]
+        )
+
+    # Re-collect through the normal train path to exercise the same masks in
+    # PPO's probability-ratio update, not only action selection.
+    trainer.train_rollout(steps=8)
+    assert trainer.policies["knight"].update_count == 1
+    assert trainer.policies["boss"].update_count == 1
+
+
 def test_partial_tail_rollout_updates_cleanly():
     config = small_ppo_config(batch_size=8, rollout_steps=16, epochs=4)
     observation = KnightBossParallelEnv().reset(seed=1)[0]["knight"]

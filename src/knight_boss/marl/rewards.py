@@ -246,6 +246,12 @@ def tactical_rewards(
         tactical_delta += 0.05
     if "knight_attack_miss" in event_set or "knight_attack_noop" in event_set:
         tactical_delta -= 0.025
+    if "knight_waited_with_attack_ready" in event_set:
+        tactical_delta -= 0.05
+    if "knight_waited_with_approach_available" in event_set:
+        tactical_delta -= 0.025
+    if "knight_waited_through_avoidable_special2" in event_set:
+        tactical_delta -= 0.05
     if "knight_dodged_damage" in event_set:
         tactical_delta += 0.05
     elif "knight_moved" in event_set and "boss_attack_miss" in event_set:

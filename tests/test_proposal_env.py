@@ -32,6 +32,8 @@ def test_proposal_env_passes_pettingzoo_parallel_api(
     )
     obs, _ = env.reset(seed=7)
     assert observation_to_vector(obs["knight"]).size == 44
+    assert obs["knight"]["action_mask"].shape == (8,)
+    assert env.observation_space("knight").contains(obs["knight"])
     parallel_api_test(env, num_cycles=60)
 
 
@@ -181,3 +183,117 @@ def test_proposal_draw_penalty_applies_only_on_timeout_or_draw():
     assert env.outcome is Outcome.DRAW
     assert r2["knight"] == pytest.approx(-1.0)
     assert r2["boss"] == pytest.approx(-1.0)
+
+
+def test_dodged_special_is_classified_as_block_not_hit_under_tactical_reward():
+    env = ProposalCombatEnv(
+        GameConfig(knight_position=(4, 4), boss_position=(4, 5)),
+        reward_mode="tactical",
+    )
+    env.reset(seed=0)
+    # Boss telegraphs SPECIAL_2 (shared cooldown c_B = 2) while the Knight waits.
+    env.step(
+        {"knight": ProposalCommonAction.WAIT, "boss": ProposalBossAction.SPECIAL_2}
+    )
+    # Knight DODGEs on the firing step, so u_K negates the shockwave on contact.
+    _, rewards, _, _, info = env.step(
+        {"knight": ProposalKnightAction.DODGE, "boss": ProposalCommonAction.WAIT}
+    )
+    events = info["knight"]["events"]
+    assert "knight_dodged_damage" in events
+    assert "boss_special2_blocked" in events
+    assert "boss_special2_hit" not in events
+    assert env.hp["knight"] == env.knight_max_hp
+    assert rewards["knight"] >= 0.0
+    assert info["knight"]["proposal_events"]["boss_special2_hit"] == 0
+    assert info["knight"]["proposal_events"]["boss_special2_blocked"] == 1
+
+
+def test_unblocked_special_still_emits_hit_and_penalty_under_tactical_reward():
+    env = ProposalCombatEnv(
+        GameConfig(knight_position=(4, 4), boss_position=(4, 5)),
+        reward_mode="tactical",
+    )
+    env.reset(seed=0)
+    env.step(
+        {"knight": ProposalCommonAction.WAIT, "boss": ProposalBossAction.SPECIAL_2}
+    )
+    _, rewards, _, _, info = env.step(
+        {"knight": ProposalCommonAction.WAIT, "boss": ProposalCommonAction.WAIT}
+    )
+    events = info["knight"]["events"]
+    assert "boss_special2_hit" in events
+    assert "knight_dodged_damage" not in events
+    assert env.hp["knight"] < env.knight_max_hp
+    assert rewards["knight"] < 0.0
+    assert info["knight"]["proposal_events"]["boss_special2_hit"] == 1
+
+
+def test_blocked_boundary_moves_are_masked_and_reported_without_moving():
+    env = ProposalCombatEnv(
+        GameConfig(knight_position=(0, 0), boss_position=(8, 8))
+    )
+    observations, _ = env.reset(seed=0)
+    mask = observations["knight"]["action_mask"]
+    assert mask[ProposalCommonAction.UP] == 0
+    assert mask[ProposalCommonAction.LEFT] == 0
+    assert mask[ProposalCommonAction.WAIT] == 1
+
+    for _ in range(3):
+        _, _, _, _, info = env.step(
+            {"knight": ProposalCommonAction.UP, "boss": ProposalCommonAction.WAIT}
+        )
+        assert env.pos["knight"] == (0, 0)
+        assert "knight_blocked_movement" in info["knight"]["events"]
+    assert info["knight"]["proposal_events"]["knight_blocked_movement"] == 3
+
+
+def test_heal_mask_disables_full_health_and_no_charges_but_allows_injured_heal():
+    env = ProposalCombatEnv(
+        GameConfig(knight_position=(4, 4), boss_position=(4, 5)),
+        heal_charges=1,
+    )
+    observations, _ = env.reset(seed=0)
+    assert observations["knight"]["action_mask"][ProposalKnightAction.HEAL] == 0
+
+    env.hp["knight"] -= 20
+    observation = env._observe("knight")
+    assert observation["action_mask"][ProposalKnightAction.HEAL] == 1
+    env.step({"knight": ProposalKnightAction.HEAL, "boss": ProposalCommonAction.WAIT})
+    assert env.hp["knight"] == env.knight_max_hp
+    assert env.knight_heal_charges == 0
+    assert env._observe("knight")["action_mask"][ProposalKnightAction.HEAL] == 0
+
+
+def test_special2_warning_exposes_threat_and_allows_dodge_or_escape():
+    env = ProposalCombatEnv(
+        GameConfig(knight_position=(0, 2), boss_position=(0, 0)),
+        special2_radius=2,
+    )
+    env.reset(seed=0)
+    observations, _, _, _, _ = env.step(
+        {"knight": ProposalCommonAction.WAIT, "boss": ProposalBossAction.SPECIAL_2}
+    )
+    knight_obs = observations["knight"]
+    assert knight_obs["proposal_state"][3] == pytest.approx(1.0)
+    assert knight_obs["windups"][7] == pytest.approx(1.0)
+    assert knight_obs["action_mask"][ProposalKnightAction.DODGE] == 1
+    assert knight_obs["action_mask"][ProposalCommonAction.RIGHT] == 1
+
+    observations, _, _, _, info = env.step(
+        {"knight": ProposalCommonAction.RIGHT, "boss": ProposalCommonAction.WAIT}
+    )
+    assert env.hp["knight"] == env.knight_max_hp
+    assert "knight_escaped_special2" in info["knight"]["events"]
+    assert info["knight"]["proposal_events"]["knight_escaped_special2"] == 1
+
+
+def test_attack_and_defensive_choices_remain_available_together():
+    env = ProposalCombatEnv(
+        GameConfig(knight_position=(4, 4), boss_position=(4, 5))
+    )
+    observations, _ = env.reset(seed=0)
+    mask = observations["knight"]["action_mask"]
+    assert mask[ProposalKnightAction.ATTACK] == 1
+    assert mask[ProposalKnightAction.DODGE] == 1
+    assert mask[ProposalKnightAction.HEAL] == 0

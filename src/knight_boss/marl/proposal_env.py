@@ -166,10 +166,20 @@ class ProposalCombatEnv(ParallelEnv):
             "knight_dodge_used": 0,
             "knight_dodge_blocked": 0,
             "knight_heal_used": 0,
+            "knight_heal_noop": 0,
+            "knight_attack_attempt": 0,
+            "knight_attack_hit": 0,
+            "knight_attack_miss": 0,
+            "knight_attack_noop": 0,
             "boss_special1_cast": 0,
             "boss_special1_hit": 0,
+            "boss_special1_blocked": 0,
             "boss_special2_cast": 0,
             "boss_special2_hit": 0,
+            "boss_special2_blocked": 0,
+            "knight_blocked_movement": 0,
+            "boss_blocked_movement": 0,
+            "knight_escaped_special2": 0,
         }
         self.outcome: Outcome | None = None
         self.terminated = False
@@ -188,6 +198,10 @@ class ProposalCombatEnv(ParallelEnv):
                 "windups": spaces.Box(-1.0, float("inf"), shape=(8,), dtype=np.float32),
                 "remaining_steps": spaces.Box(0.0, float(self.config.max_steps), shape=(1,), dtype=np.float32),
                 "proposal_state": spaces.Box(0.0, 1.0, shape=(9,), dtype=np.float32),
+                # Legality is state-derived and exposed to the policy so PPO
+                # can use the same categorical distribution during sampling
+                # and optimization. This does not reveal hidden game state.
+                "action_mask": spaces.MultiBinary(8),
             }
         )
 
@@ -236,6 +250,21 @@ class ProposalCombatEnv(ParallelEnv):
         b_cd_start = self.atk_cd["boss"]
         k_dodge_cd_start = self.knight_dodge_cd
         pending_at_start = self.pending_special
+        special2_threatened_before_response = False
+        special2_dodge_available = (
+            self.enable_dodge and k_dodge_cd_start == 0
+        )
+        if (
+            pending_at_start is not None
+            and pending_at_start["kind"] == "special2"
+            and pending_at_start["remaining"] <= 1
+        ):
+            knight_r, knight_c = self.pos["knight"]
+            origin_r, origin_c = pending_at_start["origin"]
+            special2_threatened_before_response = (
+                max(abs(knight_r - origin_r), abs(knight_c - origin_c))
+                <= self.special2_radius
+            )
 
         events: list[str] = []
 
@@ -257,6 +286,7 @@ class ProposalCombatEnv(ParallelEnv):
                 events.append("knight_heal")
             else:
                 events.append("knight_heal_noop")
+                self.events_count["knight_heal_noop"] += 1
 
         # 2. Simultaneous movement resolution
         pos_start = dict(self.pos)
@@ -270,8 +300,75 @@ class ProposalCombatEnv(ParallelEnv):
                     targets[agent] = (nr, nc)
                 else:
                     targets[agent] = (r, c)
+                    blocked_event = f"{agent}_blocked_movement"
+                    events.append(blocked_event)
+                    self.events_count[blocked_event] += 1
             else:
                 targets[agent] = (r, c)
+
+        special2_escape_available = False
+        knight_approach_available = False
+        if special2_threatened_before_response:
+            origin_r, origin_c = pending_at_start["origin"]
+            for dr, dc in _MOVE_DELTAS.values():
+                candidate = (
+                    pos_start["knight"][0] + dr,
+                    pos_start["knight"][1] + dc,
+                )
+                in_bounds = (
+                    0 <= candidate[0] < self.config.rows
+                    and 0 <= candidate[1] < self.config.columns
+                )
+                blocked_by_collision = (
+                    candidate == targets["boss"]
+                    or (
+                        candidate == pos_start["boss"]
+                        and targets["boss"] == pos_start["knight"]
+                    )
+                )
+                outside_shockwave = (
+                    max(
+                        abs(candidate[0] - origin_r),
+                        abs(candidate[1] - origin_c),
+                    )
+                    > self.special2_radius
+                )
+                if in_bounds and not blocked_by_collision and outside_shockwave:
+                    special2_escape_available = True
+                    break
+
+        if pending_at_start is None:
+            start_distance = (
+                abs(pos_start["knight"][0] - pos_start["boss"][0])
+                + abs(pos_start["knight"][1] - pos_start["boss"][1])
+            )
+            for dr, dc in _MOVE_DELTAS.values():
+                candidate = (
+                    pos_start["knight"][0] + dr,
+                    pos_start["knight"][1] + dc,
+                )
+                in_bounds = (
+                    0 <= candidate[0] < self.config.rows
+                    and 0 <= candidate[1] < self.config.columns
+                )
+                blocked_by_collision = (
+                    candidate == targets["boss"]
+                    or (
+                        candidate == pos_start["boss"]
+                        and targets["boss"] == pos_start["knight"]
+                    )
+                )
+                candidate_distance = (
+                    abs(candidate[0] - pos_start["boss"][0])
+                    + abs(candidate[1] - pos_start["boss"][1])
+                )
+                if (
+                    in_bounds
+                    and not blocked_by_collision
+                    and candidate_distance < start_distance
+                ):
+                    knight_approach_available = True
+                    break
 
         if targets["knight"] == targets["boss"]:
             pass  # Same-square collision cancels both
@@ -294,8 +391,12 @@ class ProposalCombatEnv(ParallelEnv):
             - prev_dist
         )
 
-        # 3. Resolve Boss pending special attack z_t started earlier
+        # 3. Resolve Boss pending special attack z_t started earlier. A geometric
+        # connection is recorded as a *pending* hit: whether it lands as a real
+        # "hit" or is negated as a "block" is only decided in step 5, once the
+        # Knight's invincibility frames (u_K) have been applied.
         dmg_to = {"knight": 0, "boss": 0}
+        pending_special_hit: str | None = None
         if pending_at_start is not None:
             if pending_at_start["remaining"] > 1:
                 self.pending_special = {
@@ -314,18 +415,19 @@ class ProposalCombatEnv(ParallelEnv):
                             break
                     if hit:
                         dmg_to["knight"] += self.boss_spec1_dmg
-                        self.events_count["boss_special1_hit"] += 1
-                        events.append("boss_special1_hit")
+                        pending_special_hit = "boss_special1_hit"
                     else:
                         events.append("boss_special1_missed")
                 else:  # special2 expanding shockwave centered at cast origin
                     sr, sc = pending_at_start["origin"]
                     if max(abs(kr - sr), abs(kc - sc)) <= self.special2_radius:
                         dmg_to["knight"] += self.boss_spec2_dmg
-                        self.events_count["boss_special2_hit"] += 1
-                        events.append("boss_special2_hit")
+                        pending_special_hit = "boss_special2_hit"
                     else:
                         events.append("boss_special2_missed")
+                        if special2_threatened_before_response:
+                            events.append("knight_escaped_special2")
+                            self.events_count["knight_escaped_special2"] += 1
                 self.pending_special = None
 
         # 4. Resolve newly initiated attacks and Boss special charges
@@ -335,21 +437,44 @@ class ProposalCombatEnv(ParallelEnv):
         dist = abs(kr - br) + abs(kc - bc)
         knight_chebyshev_dist = max(abs(kr - br), abs(kc - bc))
 
+        if (
+            k_act == int(ProposalKnightAction.WAIT)
+            and pending_at_start is None
+            and k_cd_start == 0
+            and knight_chebyshev_dist <= self.knight_atk_range
+        ):
+            events.append("knight_waited_with_attack_ready")
+        elif (
+            k_act == int(ProposalKnightAction.WAIT)
+            and pending_at_start is None
+            and knight_approach_available
+            and not (
+                k_cd_start > 0
+                and knight_chebyshev_dist <= self.knight_atk_range
+            )
+        ):
+            events.append("knight_waited_with_approach_available")
+
         if k_act == int(ProposalKnightAction.ATTACK) and k_cd_start == 0:
+            self.events_count["knight_attack_attempt"] += 1
             if knight_chebyshev_dist <= self.knight_atk_range:
                 dmg_to["boss"] += self.knight_atk_dmg
                 started_atk_cd["knight"] = 1
                 events.append("knight_attack_hit")
+                self.events_count["knight_attack_hit"] += 1
             else:
                 events.append("knight_attack_miss")
+                self.events_count["knight_attack_miss"] += 1
         elif k_act == int(ProposalKnightAction.ATTACK):
             events.append("knight_attack_noop")
+            self.events_count["knight_attack_noop"] += 1
 
+        pending_attack_hit: str | None = None
         if b_act == int(ProposalBossAction.ATTACK) and b_cd_start == 0:
             if dist <= 1:
                 dmg_to["knight"] += self.boss_atk_dmg
                 started_atk_cd["boss"] = 1
-                events.append("boss_attack_hit")
+                pending_attack_hit = "boss_attack_hit"
             else:
                 events.append("boss_attack_miss")
         elif b_act == int(ProposalBossAction.SPECIAL_1) and b_cd_start == 0 and self.pending_special is None:
@@ -381,11 +506,35 @@ class ProposalCombatEnv(ParallelEnv):
             self.events_count["boss_special2_cast"] += 1
             events.append("boss_special2_windup")
 
-        # 5. Apply damage (with Knight invincibility u_K negation)
-        if dmg_to["knight"] > 0 and self.knight_invuln > 0:
+        # 5. Apply damage (with Knight invincibility u_K negation). Hit events are
+        # classified here so that a blow negated by u_K is reported as a block
+        # rather than a hit; otherwise a perfect dodge would emit both a bonus
+        # (knight_dodged_damage) and a penalty (boss_special*_hit).
+        negated = dmg_to["knight"] > 0 and self.knight_invuln > 0
+        if negated:
             events.append("knight_dodged_damage")
             self.events_count["knight_dodge_blocked"] += 1
             dmg_to["knight"] = 0
+
+        if pending_attack_hit is not None:
+            events.append("boss_attack_blocked" if negated else pending_attack_hit)
+        if pending_special_hit is not None:
+            if negated:
+                blocked_event = pending_special_hit.replace("_hit", "_blocked")
+                events.append(blocked_event)
+                self.events_count[blocked_event] += 1
+            else:
+                events.append(pending_special_hit)
+                self.events_count[pending_special_hit] += 1
+
+        if (
+            k_act == int(ProposalKnightAction.WAIT)
+            and special2_threatened_before_response
+            and (special2_dodge_available or special2_escape_available)
+            and pending_special_hit == "boss_special2_hit"
+            and not negated
+        ):
+            events.append("knight_waited_through_avoidable_special2")
 
         for target, attacker in (("knight", "boss"), ("boss", "knight")):
             actual = min(self.hp[target], dmg_to[target])
@@ -575,7 +724,43 @@ class ProposalCombatEnv(ParallelEnv):
                 [max(0, self.config.max_steps - self.step_count)], dtype=np.float32
             ),
             "proposal_state": proposal_state,
+            "action_mask": self._action_mask(agent),
         }
+
+    def _action_mask(self, agent: str) -> np.ndarray:
+        """Return actions that can produce a valid state transition now.
+
+        Movement masks only use board boundaries. Whether a move collides
+        depends on the other agent's simultaneous action, so it is left to the
+        existing collision rules. Attack range is likewise not masked because
+        the opponent can move during the same transition.
+        """
+        r, c = self.pos[agent]
+        mask = np.ones(8, dtype=np.int8)
+        for action, (dr, dc) in _MOVE_DELTAS.items():
+            mask[action] = int(
+                0 <= r + dr < self.config.rows
+                and 0 <= c + dc < self.config.columns
+            )
+
+        if agent == "knight":
+            mask[int(ProposalKnightAction.ATTACK)] = int(self.atk_cd[agent] == 0)
+            mask[int(ProposalKnightAction.DODGE)] = int(
+                self.enable_dodge and self.knight_dodge_cd == 0
+            )
+            mask[int(ProposalKnightAction.HEAL)] = int(
+                self.enable_heal
+                and self.knight_heal_charges > 0
+                and self.hp[agent] < self.knight_max_hp
+            )
+        else:
+            can_attack = self.atk_cd[agent] == 0 and self.pending_special is None
+            mask[int(ProposalBossAction.ATTACK)] = int(can_attack)
+            mask[int(ProposalBossAction.SPECIAL_1)] = int(can_attack)
+            mask[int(ProposalBossAction.SPECIAL_2)] = int(can_attack)
+        # WAIT is the guaranteed fallback, including fully blocked corners.
+        mask[int(ProposalCommonAction.WAIT)] = 1
+        return mask
 
     def close(self) -> None:
         self.agents = []
@@ -706,5 +891,8 @@ class ProposalRandomAgent(BaseAgent):
         return ProposalRandomAgent(rows=rows, columns=columns, seed=seed)
 
     def act(self, observation: Observation) -> int:
-        del observation
-        return int(self._rng.integers(0, 8))
+        mask = np.asarray(observation.get("action_mask", np.ones(8)), dtype=bool)
+        choices = np.flatnonzero(mask)
+        if choices.size == 0:
+            raise ValueError("Proposal observation has no valid actions.")
+        return int(self._rng.choice(choices))

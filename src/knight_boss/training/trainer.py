@@ -82,7 +82,9 @@ class MultiAgentPPOTrainer:
         ):
             episode_ended = False
             current_observations = self.observations
-            pending_records: dict[str, tuple[np.ndarray, int, float, float]] = {}
+            pending_records: dict[
+                str, tuple[np.ndarray, int, float, float, np.ndarray | None]
+            ] = {}
             actions: dict[str, int] = {}
             for agent in AGENTS:
                 policy = self.policies[agent]
@@ -105,6 +107,7 @@ class MultiAgentPPOTrainer:
                         int(action),
                         log_probability,
                         value,
+                        observation.get("action_mask"),
                     )
 
             (
@@ -114,7 +117,13 @@ class MultiAgentPPOTrainer:
                 truncations,
                 infos,
             ) = self.env.step(actions)
-            for agent, (vector, action, log_probability, value) in pending_records.items():
+            for agent, (
+                vector,
+                action,
+                log_probability,
+                value,
+                action_mask,
+            ) in pending_records.items():
                 done = terminations[agent] or truncations[agent]
                 buffers[agent].add(
                     vector,
@@ -123,6 +132,7 @@ class MultiAgentPPOTrainer:
                     done,
                     value,
                     log_probability,
+                    action_mask=action_mask,
                 )
 
             self.total_environment_steps += 1
@@ -196,6 +206,7 @@ class MultiAgentPPOTrainer:
                 old_log_probabilities=batch.old_log_probabilities,
                 advantages=batch.advantages,
                 returns=batch.returns,
+                action_masks=batch.action_masks,
             )
         return metrics
 
