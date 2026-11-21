@@ -255,15 +255,43 @@ The empirical `alpha*` value is the largest tested multiplier at or above parity
 
 ---
 
-## 6. Final Experiment Results
+## 6. Results and Visualizations
+
+The plots below summarize the completed 5×5 capability-grid experiment. Win rates and confidence intervals are aggregated across the five independent training seeds. In learned-Boss evaluations, the simultaneous regime's Boss was co-trained with its Knight; the alternating regime's Boss was trained against the frozen Knight.
+
+### Win rate and training-regime comparison
+
+![Knight win rate versus Boss capability multiplier](experiments_action_masked_alpha_fullgrid_v1/analysis/fig_win_vs_alpha.png)
+
+*Diagonal win-rate curves compare fixed-opponent, simultaneous, and alternating learning. Panels distinguish heuristic and paired learned-Boss evaluations.*
+
+### Capability heatmap
+
+![Knight win-rate heatmap against paired learned Bosses](experiments_action_masked_alpha_fullgrid_v1/analysis/fig_heatmap_matched.png)
+
+*The learned-opponent grid shows simultaneous and alternating performance. The paired Boss is co-trained in simultaneous learning and trained against the frozen Knight in alternating learning.*
+
+### Health and damage sensitivity
+
+![Knight win-rate sensitivity to Boss health and damage](experiments_action_masked_alpha_fullgrid_v1/analysis/fig_sensitivity.png)
+
+*Health-only and damage-only slices show how changing each Boss capability affects Knight win rates across training regimes and opponent types.*
+
+### Seed variability
+
+![Variation in Knight win rates across training seeds](experiments_action_masked_alpha_fullgrid_v1/analysis/fig_seed_variability.png)
+
+*Seed-level diagonal results show the mean and 95% Student-t interval across five training seeds, highlighting run-to-run variability.*
+
+### Summary of findings
 
 Some key findings from the completed experiment:
 
 - Against the heuristic Boss, fixed-opponent training achieves an average Knight win rate of **86.0%** at the strongest tested diagonal configuration, `(1.5, 1.5)`.
 - At parity, simultaneous learning achieves a **98.1%** mean Knight win rate against the heuristic Boss.
 - At parity, alternating learning achieves a **91.4%** mean Knight win rate against the heuristic Boss.
-- Against the paired learned Boss, simultaneous learning achieves a **71.8%** mean win rate at parity, with a wide 95% confidence interval of 30.9–100.0%.
-- Against its paired learned Boss, alternating learning achieves a **32.7%** mean win rate at parity, with a 95% confidence interval of 8.0–57.4%.
+- Against its paired co-trained Boss, simultaneous learning achieves a **71.8%** mean win rate at parity, with a wide 95% confidence interval of 30.9–100.0%.
+- Against the Boss trained against its frozen Knight, alternating learning achieves a **32.7%** mean win rate at parity, with a 95% confidence interval of 8.0–57.4%.
 - At `(1.5, 1.5)`, the paired learned-Boss win rates fall to 3.6% for simultaneous learning and 1.2% for alternating learning.
 
 These results suggest that an underdog agent can learn to win under certain conditions. They do not establish that it can reliably defeat arbitrary or freshly optimized opponents.
