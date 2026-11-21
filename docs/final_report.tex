@@ -308,6 +308,8 @@ The experiment uses five independent training seeds and exhibits substantial see
 
 The heuristic Boss is predictable, limiting what its high win rates imply about generalization. The grid covers only multipliers from 0.5 to 1.5 and uses five values per axis. Hyperparameter sensitivity and reward ablations were not extensive. Results depend on this custom simultaneous-action environment, action-range rules, action masks, and shaped tactical reward. A different environment or reward could change the outcome. We did not treat learning curves as a primary endpoint, and evaluation intervals over five seeds remain imprecise despite 500 games per checkpoint.
 
+The capability grid was restricted to multipliers between 0.5 and 1.5 due to computational and time constraints. Running the completed 375-experiment study already required approximately 7–8 hours of computation. Extending the grid to higher capability multipliers would have introduced additional configurations, training runs, and evaluation workloads, increasing the total runtime considerably. Given the available project timeline and computational budget, extending the range was not feasible. Consequently, the reported empirical $\alpha^*$ values are limited to the tested range and do not establish how the agents would perform against Bosses with capabilities beyond 1.5.
+
 \section{Contributions}
 
 \begin{table}[H]
