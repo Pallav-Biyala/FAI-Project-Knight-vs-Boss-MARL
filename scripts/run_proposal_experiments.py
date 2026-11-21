@@ -17,10 +17,12 @@ import argparse
 import json
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from math import isfinite
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EVAL_SEED = 100000
+DEFAULT_ALPHA_GRID = (0.5, 0.75, 1.0, 1.25, 1.5)
 
 
 def job_key(
@@ -444,9 +446,44 @@ def run_baselines(
 
 
 def build_alpha_pairs(args) -> list[tuple[float, float]]:
-    pairs = {(a, a) for a in args.diagonal}
-    pairs |= {(a, 1.0) for a in args.durability}
-    pairs |= {(1.0, a) for a in args.lethality}
+    """Build either a full Cartesian alpha grid or requested legacy slices."""
+    alpha_grid = getattr(args, "alpha_grid", None)
+    diagonal = getattr(args, "diagonal", None)
+    durability = getattr(args, "durability", None)
+    lethality = getattr(args, "lethality", None)
+    has_legacy_slices = any(
+        value is not None for value in (diagonal, durability, lethality)
+    )
+
+    if alpha_grid is not None and has_legacy_slices:
+        raise ValueError(
+            "Use --alpha-grid by itself, or use --diagonal/--durability/--lethality."
+        )
+
+    if alpha_grid is not None:
+        values = tuple(sorted(set(float(value) for value in alpha_grid)))
+    elif has_legacy_slices:
+        values = ()
+    else:
+        values = DEFAULT_ALPHA_GRID
+
+    if values:
+        if any(not isfinite(value) or value <= 0 for value in values):
+            raise ValueError("Alpha values must be positive and finite.")
+        if alpha_grid is not None or not has_legacy_slices:
+            return sorted((alpha_h, alpha_d) for alpha_h in values for alpha_d in values)
+
+    pairs = {(a, a) for a in (diagonal or [])}
+    pairs |= {(a, 1.0) for a in (durability or [])}
+    pairs |= {(1.0, a) for a in (lethality or [])}
+    if any(
+        not isfinite(value) or value <= 0
+        for pair in pairs
+        for value in pair
+    ):
+        raise ValueError("Alpha values must be positive and finite.")
+    if not pairs:
+        raise ValueError("At least one alpha pair must be selected.")
 
     return sorted(pairs)
 
@@ -478,18 +515,29 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--alpha-grid",
+        nargs="+",
+        type=float,
+        default=None,
+        help=(
+            "Values for both axes of a full Cartesian alpha_h x alpha_d grid. "
+            f"Default: {list(DEFAULT_ALPHA_GRID)}."
+        ),
+    )
+
+    parser.add_argument(
         "--diagonal",
         nargs="*",
         type=float,
-        default=[1.0, 1.5, 2.0, 3.0],
-        help="alpha_h = alpha_d values.",
+        default=None,
+        help="Legacy diagonal slice (alpha_h = alpha_d).",
     )
 
     parser.add_argument(
         "--durability",
         nargs="*",
         type=float,
-        default=[],
+        default=None,
         help="alpha_h values with alpha_d = 1.",
     )
 
@@ -497,7 +545,7 @@ def main() -> None:
         "--lethality",
         nargs="*",
         type=float,
-        default=[],
+        default=None,
         help="alpha_d values with alpha_h = 1.",
     )
 
@@ -585,9 +633,10 @@ def main() -> None:
         args.br_steps = 1024
         args.eval_episodes = 10
         args.seeds = [0]
+        args.alpha_grid = None
         args.diagonal = [1.0, 1.5]
-        args.durability = []
-        args.lethality = []
+        args.durability = None
+        args.lethality = None
         # Keep population phases short enough to exercise the alternation.
         args.population_size = 3
         args.phase_updates = 1
