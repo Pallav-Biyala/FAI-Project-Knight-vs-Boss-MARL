@@ -1,0 +1,16 @@
+regime,opponent,slice,threshold_domain,tested_alphas,mean_win_by_alpha,alpha_star,alpha_star_lo(CI),alpha_star_hi(CI),bracket,crossing_est,curve_monotone_on_alpha>=1,n_seeds
+alternating_learning,heuristic,diagonal,alpha >= 1,0.5 0.75 1 1.25 1.5,1.000 1.000 0.914 0.506 0.146,1.25,1.0,1.25,"[1.25, 1.5)",1.25,True,5
+alternating_learning,heuristic,"durability (alpha_h, alpha_d=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,1.000 0.977 0.914 0.500 0.306,1.25,1.0,1.5,"[1.25, 1.5)",1.25,True,5
+alternating_learning,heuristic,"lethality (alpha_d, alpha_h=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,1.000 0.985 0.914 0.766 0.756,1.5,1.5,1.5,not bounded: still >= 0.5 at largest tested alpha 1.5,,True,5
+alternating_learning,matched,diagonal,alpha >= 1,0.5 0.75 1 1.25 1.5,0.946 0.593 0.327 0.080 0.012,none,none,1.0,none: no tested alpha >= 1 has mean win rate >= 0.5,,True,5
+alternating_learning,matched,"durability (alpha_h, alpha_d=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,0.728 0.427 0.327 0.055 0.070,none,none,1.0,none: no tested alpha >= 1 has mean win rate >= 0.5,,False,5
+alternating_learning,matched,"lethality (alpha_d, alpha_h=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,0.720 0.512 0.327 0.222 0.047,none,none,1.0,none: no tested alpha >= 1 has mean win rate >= 0.5,,True,5
+fixed_opponent,heuristic,diagonal,alpha >= 1,0.5 0.75 1 1.25 1.5,1.000 1.000 0.998 0.988 0.860,1.5,1.5,1.5,not bounded: still >= 0.5 at largest tested alpha 1.5,,True,5
+fixed_opponent,heuristic,"durability (alpha_h, alpha_d=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,1.000 1.000 0.998 1.000 0.992,1.5,1.5,1.5,not bounded: still >= 0.5 at largest tested alpha 1.5,,False,5
+fixed_opponent,heuristic,"lethality (alpha_d, alpha_h=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,1.000 1.000 0.998 1.000 0.986,1.5,1.5,1.5,not bounded: still >= 0.5 at largest tested alpha 1.5,,False,5
+simultaneous_learning,heuristic,diagonal,alpha >= 1,0.5 0.75 1 1.25 1.5,1.000 1.000 0.981 0.856 0.326,1.25,1.25,1.5,"[1.25, 1.5)",1.42,True,5
+simultaneous_learning,heuristic,"durability (alpha_h, alpha_d=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,0.998 0.988 0.981 0.774 0.756,1.5,1.0,1.5,not bounded: still >= 0.5 at largest tested alpha 1.5,,True,5
+simultaneous_learning,heuristic,"lethality (alpha_d, alpha_h=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,0.999 0.975 0.981 0.875 0.661,1.5,1.25,1.5,not bounded: still >= 0.5 at largest tested alpha 1.5,,True,5
+simultaneous_learning,matched,diagonal,alpha >= 1,0.5 0.75 1 1.25 1.5,1.000 0.996 0.718 0.554 0.036,1.25,none,1.25,"[1.25, 1.5)",1.28,True,5
+simultaneous_learning,matched,"durability (alpha_h, alpha_d=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,0.984 0.952 0.718 0.540 0.404,1.25,none,1.5,"[1.25, 1.5)",1.32,True,5
+simultaneous_learning,matched,"lethality (alpha_d, alpha_h=1)",alpha >= 1,0.5 0.75 1 1.25 1.5,0.998 0.740 0.718 0.505 0.163,1.25,none,1.25,"[1.25, 1.5)",1.25,True,5
