@@ -9,6 +9,7 @@
 \usepackage{amsfonts}
 \usepackage{amsmath,amssymb}
 \usepackage{nicefrac}
+\usepackage{float}
 \usepackage{microtype}
 \usepackage{fancyhdr}
 \usepackage{graphicx}
@@ -309,7 +310,7 @@ The heuristic Boss is predictable, limiting what its high win rates imply about 
 
 \section{Contributions}
 
-\begin{table*}[!ht]
+\begin{table}[H]
 \centering
 \caption{Original assigned responsibilities and team-reported fulfillment status.}
 \label{tab:contributions}
@@ -324,7 +325,7 @@ Parth Kale & PPO implementation: implement PPO for both agents, define observati
 Niraj Kumar & Training experiments and evaluation: implement regimes, run capability experiments, calculate win rates, and generate plots. & Completed (team-confirmed) \\
 \bottomrule
 \end{tabularx}
-\end{table*}
+\end{table}
 
 Table~\ref{tab:contributions} preserves the responsibility breakdown from the original proposal. The team confirmed that all assigned proposal tasks were completed. The confirmation was at team level; the report does not claim independently audited individual deliverables beyond these original assignments.
 
@@ -332,6 +333,12 @@ Table~\ref{tab:contributions} preserves the responsibility breakdown from the or
 We asked whether a mechanically weaker Knight can learn to defeat a stronger Boss that may also learn. In this environment, the answer is conditionally yes. The Knight trained against a fixed heuristic performs strongly over the tested grid, while evaluation against the paired learned Boss becomes difficult as Boss capabilities rise. At parity, simultaneous learning has a 71.8\% mean win rate against its paired co-trained Boss, but the 95\% interval across five seeds is wide; the one-switch alternating regime averages 32.7\% against its Boss trained against the frozen Knight. At the strongest diagonal setting, both win rates are near zero.
 
 The results support the claim that learning can produce an underdog policy that wins under some conditions. They do not show that a Knight can reliably beat an arbitrary or best-response learning Boss. Capability effects depend on opponent and training regime, and the five-seed variability and unequal budgets limit causal comparisons. A stronger follow-up would equalize training budgets, use repeated alternating rounds, increase independent seeds, and evaluate against fresh best-response Bosses.
+
+\section*{Code Availability}
+
+The source code for the custom combat environment, PPO implementation, training procedures, and evaluation scripts is available at:
+
+\url{https://github.com/Pallav-Biyala/FAI-Project-Knight-vs-Boss-MARL}
 
 \begin{thebibliography}{99}
 
