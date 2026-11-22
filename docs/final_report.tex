@@ -46,7 +46,7 @@ Asymmetric Co-Adaptation in Multi-Agent Combat\\
 \maketitle
 
 \begin{abstract}
-Can a mechanically weaker Knight learn to defeat a stronger Boss? We varied Boss health and damage independently over 25 configurations and compared three PPO training schedules across five seeds. Against a fixed heuristic Boss, a Knight trained on that opponent won 86.0\% of games on average at the strongest tested setting. Against paired learned Bosses, simultaneous and alternating learning yielded mean Knight win rates of 71.8\% and 32.7\% at parity, falling to 3.6\% and 1.2\% at the strongest setting. Opponent choice, training order, and variation across seeds limit how broadly these results apply.
+We study whether a mechanically weaker reinforcement-learning agent can learn to defeat a stronger opponent, including one that adapts during training. We implemented a simultaneous-action Knight-Boss combat game and compared PPO training against a fixed heuristic, simultaneous co-learning, and one-switch alternating learning. Boss health and damage were varied independently over a $5\times5$ grid of multipliers from 0.5 to 1.5. Across 375 runs (three regimes and five training seeds at each of 25 settings), every final Knight was evaluated for 500 games against the heuristic Boss; simultaneous- and alternating-learning runs were also evaluated against their paired final learned Boss. Against the heuristic, the fixed-opponent Knight achieved an 86.0\% mean win rate even at $(\alpha_H,\alpha_D)=(1.5,1.5)$. At parity against the paired learned Boss, simultaneous learning averaged 71.8\% wins (95\% $t$-interval across seeds: 30.9-100.0\%), while alternating learning averaged 32.7\% (8.0-57.4\%). In simultaneous learning, this is the paired co-trained Boss; in alternating learning, it is the Boss trained against the frozen Knight. At $(1.5,1.5)$ these rates fell to 3.6\% and 1.2\%, respectively. The results show that a weaker Knight can learn to win in this environment, but performance against an adapting Boss is less reliable and varies substantially across training seeds. The evidence is specific to the implemented game, reward, training budgets, and opponents; no fresh best-response Boss evaluation was completed.
 
 \end{abstract}
 
@@ -55,7 +55,56 @@ Can a mechanically weaker Knight learn to defeat a stronger Boss? We varied Boss
 \section{Introduction}
 Multi-agent reinforcement learning (MARL) studies agents that learn through interaction in a shared environment \cite{busoniu2008comprehensive,zhang2021multi}. In competitive settings, each agent must perform well while responding to an opponent whose policy may also change. This can make learning non-stationary from either agent's perspective \cite{hernandez2020survey}. Competition has produced strong game-playing systems in complex domains \cite{vinyals2019grandmaster} and can generate increasingly sophisticated behavior \cite{bansal2018emergent}; however, performance under a structural capability disadvantage is still an important empirical question.
 
-We ask how much additional health or damage a Boss can have before a trained Knight's mean win rate falls below 50\%. We study this question against a fixed heuristic and against a Boss that learns during training. Varying health and damage independently lets us distinguish the effect of surviving more attacks from the effect of dealing more damage.
+Our project is inspired by difficult action-game encounters in which a player character begins weaker than a boss, yet can win through adaptation and effective decisions. We represent this idea in a lightweight grid combat environment with a Knight and a Boss. The Knight has limited health and damage, while the Boss can have higher health and stronger attacks. We compare a Knight trained against a fixed opponent with Knights trained while the Boss also learns.
+
+Our research question is:
+\begin{center}
+\emph{Can an initially weaker agent learn to defeat a stronger opponent in a competitive multi-agent environment, and how do fixed-opponent, simultaneous, and alternating training affect its ability to do so?}
+\end{center}
+We study win rate as a function of two independently varied Boss capabilities: durability and lethality. We also compare performance against a scripted heuristic and, for simultaneous- and alternating-learning runs, the paired learned Boss: co-trained with the Knight in simultaneous learning, or trained against the frozen Knight in alternating learning. We do not claim that evaluation against the paired Boss approximates robustness against the strongest possible adversary.
+
+The primary contribution is an empirical comparison of asymmetric adaptation under controlled capability variation. We use PPO as a practical learning method rather than proposing a new optimizer. The final implementation differs from several details in the proposal; these differences and their implications are recorded in Section~\ref{sec:deviations}.
+
+\section{Preliminaries}
+\subsection{Markov Decision Process}
+A Markov Decision Process (MDP) is a tuple
+\begin{equation}
+\mathcal{M}=(\mathcal{S},\mathcal{A},P,R,\gamma),
+\end{equation}
+where $\mathcal{S}$ is the state space, $\mathcal{A}$ is the action space, $P(s'\mid s,a)$ is the transition distribution, $R$ is the reward function, and $\gamma\in[0,1)$ is the discount factor. At each time step, an agent observes the current state, samples an action from its policy, receives a reward, and transitions to a new state. Its objective is to maximize expected discounted return.
+
+\subsection{Stochastic Games}
+A two-agent stochastic (Markov) game extends the MDP with joint actions and an individual reward for each agent:
+\begin{equation}
+\mathcal{G}=(\mathcal{S},\mathcal{A}_K,\mathcal{A}_B,P,R_K,R_B,\gamma).
+\end{equation}
+Both agents select actions at each time step, and the transition depends on both actions. A game is zero-sum when $R_B=-R_K$. When both policies learn simultaneously, each agent's effective environment changes as the opponent updates. This non-stationarity can complicate policy optimization and may produce unstable or cyclic learning \cite{busoniu2008comprehensive,hernandez2020survey}. Alternating updates hold one policy fixed while the other learns, but do not in general guarantee convergence.
+
+\subsection{Proximal Policy Optimization}
+Proximal Policy Optimization (PPO) is a policy-gradient method that uses a clipped objective to discourage excessively large policy updates \cite{schulman2017proximal}. For policy parameters $\theta$, its clipped surrogate objective is
+\begin{equation}
+L^{\mathrm{CLIP}}(\theta)=
+\hat{\mathbb{E}}_t\left[
+\min\left(
+r_t(\theta)\hat{A}_t,\,
+\operatorname{clip}(r_t(\theta),1-\epsilon,1+\epsilon)\hat{A}_t
+\right)\right],
+\end{equation}
+where $r_t(\theta)=\pi_\theta(a_t\mid s_t)/\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)$, $\hat{A}_t$ is the estimated advantage, and $\epsilon$ is a clipping parameter. PPO is used here as a practical baseline; neither PPO nor the training schedules are assumed to solve a minimax game.
+
+\subsection{Evaluation Notation}
+Let $\pi_K$ and $\pi_B$ be Knight and Boss policies. The Knight win rate at capability setting $(\alpha_H,\alpha_D)$ is
+\begin{equation}
+W(\pi_K,\pi_B;\alpha_H,\alpha_D)
+=\Pr_{\pi_K,\pi_B}[\text{Knight wins the episode}].
+\end{equation}
+Draws and Boss wins are reported separately. For regime $\rho$, let $\overline{W}_\rho$ denote the mean win rate across independent training seeds. On a specified one-dimensional slice of the capability grid, the empirical threshold is
+\begin{equation}
+\alpha_\rho^* =
+\max\{\alpha\in\mathcal{V}\cap[1,\infty):\overline{W}_\rho(\alpha)\ge 0.5\}.
+\end{equation}
+This is a descriptive threshold on the tested values, not a theoretical boundary. If no tested value qualifies, no threshold is reported; if the largest tested value qualifies, the threshold is not bounded within the tested range.
+
 
 \section{Problem Formulation}
 \subsection{Game Formalization}
@@ -96,9 +145,17 @@ F_K(s,s')=\gamma\Phi_K(s')-\Phi_K(s),
 \end{equation}
 with $w=0.5$, $\gamma=0.995$, and terminal potential set to zero. The potential-shaping contribution is opposite for the two agents. Draws and timeouts incur an additional common $-0.75$ for both agents.
 
-Tactical event terms for the Knight are: $+0.05$ for a landed attack; $-0.025$ for an attack miss or no-op; $-0.05$ for waiting while an attack is ready; $-0.025$ for waiting when approach is available; $-0.05$ for waiting through an avoidable Special~2; $+0.05$ for dodging damage; $+0.04$ for moving so an incoming Boss attack misses (only when the damage-dodge event did not occur); $-0.025$ for an ineffective dodge, dodge no-op, or heal no-op; and $-0.10$ when Special~1 or Special~2 hits. Knight-only distance shaping rewards closing by $+0.01$ per tile and penalizes retreat by $-0.02$ per tile. The Boss receives the negative of the tactical event delta, but not the Knight-only distance term. These extra terms mean the implemented reward is not strictly zero-sum; in particular, the shared draw penalty and Knight-only distance term are not zero-sum. 
+Tactical event terms for the Knight are: $+0.05$ for a landed attack; $-0.025$ for an attack miss or no-op; $-0.05$ for waiting while an attack is ready; $-0.025$ for waiting when approach is available; $-0.05$ for waiting through an avoidable Special~2; $+0.05$ for dodging damage; $+0.04$ for moving so an incoming Boss attack misses (only when the damage-dodge event did not occur); $-0.025$ for an ineffective dodge, dodge no-op, or heal no-op; and $-0.10$ when Special~1 or Special~2 hits. Knight-only distance shaping rewards closing by $+0.01$ per tile and penalizes retreat by $-0.02$ per tile. The Boss receives the negative of the tactical event delta, but not the Knight-only distance term. These extra terms mean the implemented reward is not strictly zero-sum; in particular, the shared draw penalty and Knight-only distance term are not zero-sum. Consequently, the theoretical minimax objective below is motivation, not the optimizer's guaranteed solution.
 
-
+\subsection{Optimization Objective}
+For a strictly competitive formulation, one may write
+\begin{equation}
+\pi_K^*=\arg\max_{\pi_K}\min_{\pi_B}
+\mathbb{E}_{\pi_K,\pi_B}\left[
+\sum_{t=0}^{T_{\mathrm{term}}-1}\gamma^t R_K(s_t,a_K^{(t)},a_B^{(t)})
+\right].
+\end{equation}
+Our implemented reward is not strictly zero-sum and PPO does not guarantee finding a minimax equilibrium. We therefore treat the expression as a conceptual robustness objective and compare learned policies empirically using win rate, losses, draws, and episode length.
 
 \section{Methodology}
 \subsection{Known and Unknown}
@@ -114,19 +171,7 @@ We compare three training schedules:
 These regimes test a fixed opponent, concurrent adaptation, and a single freeze-and-train response. They do not test repeated alternating rounds.
 
 \subsection{PPO Implementation}
-Proximal Policy Optimization (PPO) is a policy-gradient method that uses a clipped objective to discourage excessively large policy updates \cite{schulman2017proximal}. For policy parameters $\theta$, its clipped surrogate objective is
-\begin{equation}
-L^{\mathrm{CLIP}}(\theta)=
-\hat{\mathbb{E}}_t\left[
-\min\left(
-r_t(\theta)\hat{A}_t,\,
-\operatorname{clip}(r_t(\theta),1-\epsilon,1+\epsilon)\hat{A}_t
-\right)\right],
-\end{equation}
-where $r_t(\theta)=\pi_\theta(a_t\mid s_t)/\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)$, $\hat{A}_t$ is the estimated advantage, and $\epsilon$ is a clipping parameter.
-
-For each rollout, the trainer stores the sampled actions, their masks, rewards, and old log probabilities. It estimates advantages using generalized advantage estimation and updates each active policy on minibatches. Frozen opponents still select actions throughout their phase.
-The implementation uses an independent actor--critic PPO system written in the project, rather than Stable-Baselines3. Each policy uses a two-hidden-layer MLP with 128 units per layer. The PPO settings are learning rate $3\times10^{-4}$, discount $\gamma=0.995$, GAE $\lambda=0.95$, clipping range $0.2$, entropy coefficient $0.02$, value coefficient $0.5$, 10 epochs, batch size 64, rollout length 1,024, and maximum gradient norm 0.5. Experiments ran on CPU. Legal-action masks are handled in the actor's distribution and stored separately for probability recomputation; the mask is not part of the actor--critic observation vector.
+The implementation uses an independent actor-critic PPO system written in the project, rather than Stable-Baselines3. Each policy uses a two-hidden-layer MLP with 128 units per layer. The PPO settings are learning rate $3\times10^{-4}$, discount $\gamma=0.995$, GAE $\lambda=0.95$, clipping range $0.2$, entropy coefficient $0.02$, value coefficient $0.5$, 10 epochs, batch size 64, rollout length 1,024, and maximum gradient norm 0.5. Experiments ran on CPU. Legal-action masks are handled in the actor's distribution and stored separately for probability recomputation; the mask is not part of the actor-critic observation vector.
 
 \section{Experimental Setup}
 \subsection{Capability Grid and Training Budget}
@@ -134,7 +179,7 @@ We evaluate every pair
 \begin{equation}
 \alpha_H,\alpha_D\in\{0.5,0.75,1.0,1.25,1.5\},
 \end{equation}
-for 25 configurations per regime. The five independent training seeds are 0--4, for $25\times3\times5=375$ training runs. Fixed-opponent and simultaneous-learning jobs use 40,000 environment steps each. Alternating jobs use 40,000 steps for the Knight plus 40,000 Boss steps, 80,000 total. The latter therefore has a larger total environment-step budget; regime comparisons are not compute-matched.
+for 25 configurations per regime. The five independent training seeds are 0-4, for $25\times3\times5=375$ training runs. Fixed-opponent and simultaneous-learning jobs use 40,000 environment steps each. Alternating jobs use 40,000 steps for the Knight plus 40,000 Boss steps, 80,000 total. The latter therefore has a larger total environment-step budget; regime comparisons are not compute-matched.
 
 Every final Knight checkpoint is evaluated over 500 stochastic games against the heuristic Boss. Simultaneous and alternating checkpoints are also evaluated over 500 games against the final learned Boss paired with that run. For simultaneous learning, that Boss was co-trained with the Knight; for alternating learning, the Boss was trained against the frozen Knight. Neither is a fresh best-response policy. A fresh best-response Boss was not trained in this completed experiment because its training budget was set to zero.
 
@@ -145,7 +190,29 @@ Random and scripted Knight baseline policies are evaluated separately against th
 
 \subsection{Deviations from the Original Proposal}
 \label{sec:deviations}
-The proposal used one capability multiplier and included values up to 3. Our computational budget supported a two-dimensional grid up to 1.5 on each axis. We increased evaluation from 100 to 500 games per checkpoint and implemented PPO in PyTorch in place of the proposed Stable-Baselines3 implementation \cite{raffin2021stable}. We also extended the Knight's attack range to two tiles and used tactical reward shaping. We completed one alternating cycle and omitted the proposed fresh best-response evaluation.
+\begin{table*}[t]
+\centering
+\caption{Main deviations between the proposal and completed full-grid experiment.}
+\label{tab:deviations}
+\small
+\begin{tabularx}{\textwidth}{@{}p{0.24\textwidth}p{0.33\textwidth}X@{}}
+\toprule
+Aspect & Proposal & Completed experiment \\
+\midrule
+Capability parameter & A single scalar capability multiplier & Independent Boss health $\alpha_H$ and damage $\alpha_D$ multipliers, swept on a full Cartesian grid \\
+Capability values & Planned values included $1,1.5,2,3$, subject to compute constraints & Five values per axis: $0.5,0.75,1,1.25,1.5$; no $2$ or $3$ \\
+Evaluation size & 100 games per checkpoint was planned & 500 games per checkpoint \\
+Alternating schedule & Repeat Knight/Boss freeze-and-train phases for multiple rounds & One Knight phase then one Boss phase; no Knight re-adaptation afterward \\
+Best-response opponent & Fresh PPO Boss was planned as an additional evaluation opponent & Not completed ($\texttt{br\_steps}=0$); paired learned Boss results use the Boss from that run only \\
+PPO software & Stable-Baselines3 was proposed \cite{raffin2021stable} & Project-local PyTorch PPO implementation \\
+Rewards & Strictly zero-sum terminal and health-change reward was formulated & Tactical health shaping, common draw/timeout penalty, event rewards/penalties, and Knight-only pursuit shaping; not strictly zero-sum \\
+Knight attack range & Initial specification used one tile & Refined to Chebyshev distance at most two tiles and held constant across all runs \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+Table~\ref{tab:deviations} distinguishes proposed choices from the completed experiment.
+The capability grid includes values below parity to show calibration and the performance curve on the weaker-Boss side. The alpha-star analysis restricts its threshold domain to tested values $\alpha\ge1$.
 
 \section{Results and Discussion}
 \subsection{Random and Scripted Baselines}
@@ -171,12 +238,12 @@ Scripted & $(1.5,1.5)$ & 138 & 308 & 54 & 27.6 [23.9,31.7]\% \\
 \subsection{Capability Heatmaps and Opponent Type}
 Figures~\ref{fig:heuristic-heatmap} and \ref{fig:matched-heatmap} show the full 5$\times$5 capability grid. Against the predictable heuristic, the fixed-opponent Knight averages 86.0\% wins at $(1.5,1.5)$ and remains above 50\% throughout the tested grid. Simultaneous and alternating Knights also do well against the heuristic around parity, but their performance degrades more sharply as the Boss becomes stronger. At $(1.5,1.5)$ their heuristic win rates are 32.6\% and 14.6\%, respectively. These results show that training can produce effective policies against this fixed heuristic, but they do not show robustness against an adapting or freshly optimized Boss.
 
-Against the paired learned Boss, performance is substantially lower at higher capabilities. At parity, simultaneous learning averages 71.8\% wins (95\% CI: 30.9--100.0\%) against its co-trained Boss; alternating learning averages 32.7\% (8.0--57.4\%) against the Boss trained against its frozen Knight. At $(1.5,1.5)$ these averages are 3.6\% and 1.2\%. There is also considerable seed variability: parity simultaneous seed win rates range from 17\% to 99\%, while alternating seed rates range from 2\% to 56\%. A high mean from a small sample should not be interpreted as a stable guarantee.
+Against the paired learned Boss, performance is substantially lower at higher capabilities. At parity, simultaneous learning averages 71.8\% wins (95\% CI: 30.9-100.0\%) against its co-trained Boss; alternating learning averages 32.7\% (8.0-57.4\%) against the Boss trained against its frozen Knight. At $(1.5,1.5)$ these averages are 3.6\% and 1.2\%. There is also considerable seed variability: parity simultaneous seed win rates range from 17\% to 99\%, while alternating seed rates range from 2\% to 56\%. A high mean from a small sample should not be interpreted as a stable guarantee.
 
 \begin{figure*}[!htbp]
 \centering
 \includegraphics[width=0.96\textwidth]{experiments_action_masked_alpha_fullgrid_v1/analysis/fig_heatmap_heuristic.pdf}
-\caption{Knight win rate against the heuristic Boss over the full capability grid. All panels share a 0--100\% color scale; the 50\% contour is shown where applicable.}
+\caption{Knight win rate against the heuristic Boss over the full capability grid. All panels share a 0-100\% color scale; the 50\% contour is shown where applicable.}
 \label{fig:heuristic-heatmap}
 \end{figure*}
 
@@ -244,7 +311,13 @@ Training order and budget both affect the comparison. Fixed-opponent and simulta
 
 The heuristic Boss follows predictable rules. Against learned opponents, each Knight faced the Boss from its own run: a co-trained Boss in simultaneous learning and a Boss trained against the frozen Knight in alternating learning. Performance against a fresh best-response Boss remains untested. The findings also depend on this game's simultaneous actions, attack ranges, action masks, and shaped tactical reward. We did not systematically vary the reward terms or PPO hyperparameters to measure their individual effects.
 
-Available time and compute limited the sweep to five values per axis between 0.5 and 1.5. The 25 health--damage combinations already required 375 training runs, whose recorded durations sum to about 6 hours 11 minutes. Adding even one value to both axes would increase the grid to 36 combinations and require 165 additional runs at the same three regimes and five seeds. The empirical $\alpha^*$ in Table~\ref{tab:alpha-star} therefore describes the tested grid. Where the mean win rate still reaches 50\% at 1.5, the upper threshold remains open.
+Available time and compute limited the sweep to five values per axis between 0.5 and 1.5. The 25 health-damage combinations already required 375 training runs, whose recorded durations sum to about 6 hours 11 minutes. Adding even one value to both axes would increase the grid to 36 combinations and require 165 additional runs at the same three regimes and five seeds. Given the available project timeline and computational budget, extending the range was not feasible. Consequently, the reported empirical $\alpha^*$ values are limited to the tested range and do not establish how the agents would perform against Bosses with capabilities beyond 1.5. The empirical $\alpha^*$ in Table~\ref{tab:alpha-star} therefore describes the tested grid. Where the mean win rate still reaches 50\% at 1.5, the upper threshold remains open.
+
+
+\section{Conclusion}
+We asked whether a mechanically weaker Knight can learn to defeat a stronger Boss that may also learn. In this environment, the answer is conditionally yes. The Knight trained against a fixed heuristic performs strongly over the tested grid, while evaluation against the paired learned Boss becomes difficult as Boss capabilities rise. At parity, simultaneous learning has a 71.8\% mean win rate against its paired co-trained Boss, but the 95\% interval across five seeds is wide; the one-switch alternating regime averages 32.7\% against its Boss trained against the frozen Knight. At the strongest diagonal setting, both win rates are near zero.
+
+The results support the claim that learning can produce an underdog policy that wins under some conditions. They do not show that a Knight can reliably beat an arbitrary or best-response learning Boss. Capability effects depend on opponent and training regime, and the five-seed variability and unequal budgets limit causal comparisons. A stronger follow-up would equalize training budgets, use repeated alternating rounds, increase independent seeds, and evaluate against fresh best-response Bosses.
 
 \section{Contributions}
 
@@ -265,13 +338,6 @@ Niraj Kumar & Training experiments and evaluation: implement regimes, run capabi
 \end{tabularx}
 \end{table}
 
-Table~\ref{tab:contributions} records the team's assessment of each assigned task.
-
-\section{Conclusion}
-We asked whether a mechanically weaker Knight can learn to defeat a stronger Boss that may also learn. In this environment, the answer is conditionally yes. The Knight trained against a fixed heuristic performs strongly over the tested grid, while evaluation against the paired learned Boss becomes difficult as Boss capabilities rise. At parity, simultaneous learning has a 71.8\% mean win rate against its paired co-trained Boss, but the 95\% interval across five seeds is wide; the one-switch alternating regime averages 32.7\% against its Boss trained against the frozen Knight. At the strongest diagonal setting, both win rates are near zero.
-
-The results support the claim that learning can produce an underdog policy that wins under some conditions. They do not show that a Knight can reliably beat an arbitrary or best-response learning Boss. Capability effects depend on opponent and training regime, and the five-seed variability and unequal budgets limit causal comparisons. A stronger follow-up would equalize training budgets, use repeated alternating rounds, increase independent seeds, and evaluate against fresh best-response Bosses.
-
 \section*{Code Availability}
 
 The source code for the custom combat environment, PPO implementation, training procedures, and evaluation scripts is available at:
@@ -283,22 +349,22 @@ The source code for the custom combat environment, PPO implementation, training 
 \bibitem{busoniu2008comprehensive}
 L.~Bu{\c{s}}oniu, R.~Babu{\v{s}}ka, and B.~De Schutter,
 \textquotedblleft A comprehensive survey of multiagent reinforcement learning,\textquotedblright
-\emph{IEEE Transactions on Systems, Man, and Cybernetics, Part C (Applications and Reviews)}, vol.~38, no.~2, pp.~156--172, 2008.
+\emph{IEEE Transactions on Systems, Man, and Cybernetics, Part C (Applications and Reviews)}, vol.~38, no.~2, pp.~156-172, 2008.
 
 \bibitem{zhang2021multi}
 K.~Zhang, Z.~Yang, and T.~Ba{\c{s}}ar,
 \textquotedblleft Multi-agent reinforcement learning: A selective overview of theories and algorithms,\textquotedblright
-in \emph{Handbook of Reinforcement Learning and Control}, Springer, 2021, pp.~321--384.
+in \emph{Handbook of Reinforcement Learning and Control}, Springer, 2021, pp.~321-384.
 
 \bibitem{shapley1953stochastic}
 L.~S. Shapley,
 \textquotedblleft Stochastic games,\textquotedblright
-\emph{Proceedings of the National Academy of Sciences}, vol.~39, no.~10, pp.~1095--1100, 1953.
+\emph{Proceedings of the National Academy of Sciences}, vol.~39, no.~10, pp.~1095-1100, 1953.
 
 \bibitem{littman1994markov}
 M.~L. Littman,
 \textquotedblleft Markov games as a framework for multi-agent reinforcement learning,\textquotedblright
-in \emph{Proceedings of the 11th International Conference on Machine Learning (ICML)}, 1994, pp.~157--163.
+in \emph{Proceedings of the 11th International Conference on Machine Learning (ICML)}, 1994, pp.~157-163.
 
 \bibitem{schulman2017proximal}
 J.~Schulman, F.~Wolski, P.~Dhariwal, A.~Radford, and O.~Klimov,
@@ -308,7 +374,7 @@ J.~Schulman, F.~Wolski, P.~Dhariwal, A.~Radford, and O.~Klimov,
 \bibitem{hernandez2020survey}
 P.~Hernandez-Leal, B.~Kartal, and M.~E. Taylor,
 \textquotedblleft A survey and critique of multiagent deep reinforcement learning,\textquotedblright
-\emph{Autonomous Agents and Multi-Agent Systems}, vol.~33, no.~6, pp.~750--797, 2019.
+\emph{Autonomous Agents and Multi-Agent Systems}, vol.~33, no.~6, pp.~750-797, 2019.
 
 \bibitem{bansal2018emergent}
 T.~Bansal, J.~Pachocki, S.~Sidor, I.~Sutskever, and O.~Mordatch,
@@ -318,12 +384,12 @@ in \emph{International Conference on Learning Representations (ICLR)}, 2018.
 \bibitem{vinyals2019grandmaster}
 O.~Vinyals et al.,
 \textquotedblleft Grandmaster level in StarCraft II using multi-agent reinforcement learning,\textquotedblright
-\emph{Nature}, vol.~575, pp.~350--354, 2019.
+\emph{Nature}, vol.~575, pp.~350-354, 2019.
 
 \bibitem{raffin2021stable}
 A.~Raffin, A.~Hill, A.~Gleave, A.~Kanervisto, M.~Ernestus, and N.~Dormann,
 \textquotedblleft Stable-Baselines3: Reliable reinforcement learning implementations,\textquotedblright
-\emph{Journal of Machine Learning Research}, vol.~22, no.~268, pp.~1--8, 2021.
+\emph{Journal of Machine Learning Research}, vol.~22, no.~268, pp.~1-8, 2021.
 
 \end{thebibliography}
 
