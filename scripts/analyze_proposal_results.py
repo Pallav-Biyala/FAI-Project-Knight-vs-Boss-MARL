@@ -8,7 +8,7 @@ Produces (in <out>/analysis/):
   fig_win_vs_alpha.png    win-rate curves with 95% CIs (diagonal slice)
   fig_slices.png          health / damage sensitivity by opponent
   fig_heatmap_heuristic.*  5x5 grid vs scripted Boss
-  fig_heatmap_matched.*    5x5 grid vs matched co-trained Boss
+  fig_heatmap_matched.*    5x5 grid vs paired learned Boss
   fig_seed_variability.*   individual seed outcomes and 95% CIs
   report_tables.md        the same tables in Markdown
 
@@ -172,7 +172,7 @@ def plot_diagonal(agg: pd.DataFrame, baselines: pd.DataFrame | None, path: Path)
     if not opps:
         return
     fig, axes = plt.subplots(1, len(opps), figsize=(5.2 * len(opps), 4.4), sharey=True, squeeze=False)
-    titles = {"heuristic": "vs scripted Boss", "matched": "vs co-trained Boss",
+    titles = {"heuristic": "vs scripted Boss", "matched": "vs Paired Learned Boss",
               "br_boss": "vs fresh best-response Boss"}
     colors = REGIME_COLORS
     for ax, opp in zip(axes[0], opps):
@@ -204,7 +204,7 @@ def plot_slices(agg: pd.DataFrame, path: Path) -> None:
         return
     fig, axes = plt.subplots(1, len(opponents), figsize=(5.5 * len(opponents), 4.2),
                              sharey=True, squeeze=False)
-    titles = {"heuristic": "Against scripted Boss", "matched": "Against matched co-trained Boss"}
+    titles = {"heuristic": "Against scripted Boss", "matched": "Against Paired Learned Boss"}
     line_styles = {"health": "-", "damage": "--"}
     for ax, opponent in zip(axes[0], opponents):
         subset = agg[agg.opponent == opponent]
@@ -268,7 +268,7 @@ def plot_heatmaps(agg: pd.DataFrame, opponent: str, regimes: list[str], path: Pa
     from matplotlib.ticker import FuncFormatter
     fig.colorbar(image, ax=list(axes[0]), shrink=0.82, pad=0.035,
                  label="Knight win rate (%)", format=FuncFormatter(lambda x, _: f"{x * 100:.0f}"))
-    opponent_title = "scripted Boss" if opponent == "heuristic" else "matched co-trained Boss"
+    opponent_title = "scripted Boss" if opponent == "heuristic" else "Paired Learned Boss"
     fig.suptitle(f"Knight win rate against {opponent_title}\nCell labels show mean %; white contour marks 50%",
                  fontsize=11)
     _save_figure(fig, path)
@@ -281,7 +281,7 @@ def plot_seed_variability(df: pd.DataFrame, path: Path) -> None:
         return
     fig, axes = plt.subplots(1, len(opponents), figsize=(5.5 * len(opponents), 4.3),
                              sharey=True, squeeze=False)
-    titles = {"heuristic": "Against scripted Boss", "matched": "Against matched co-trained Boss"}
+    titles = {"heuristic": "Against scripted Boss", "matched": "Against Paired Learned Boss"}
     regime_order = [r for r in ("fixed_opponent", "simultaneous_learning", "alternating_learning")
                     if r in set(diagonal.regime)]
     for ax, opponent in zip(axes[0], opponents):
