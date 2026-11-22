@@ -356,7 +356,8 @@ The runner uses resumable job keys. For a clean reproduction, use a fresh output
 The complete research report contains the mathematical formulation, environment design, training methodology, experimental protocol, statistical analysis, results, limitations, and team contributions.
 
 - [Final Research Report (PDF)](docs/final_report.pdf)
-- [LaTeX Source](docs/final_report.tex)
+- [LaTeX Source (Overleaf)](https://www.overleaf.com/project/6b01b486a5a3f1c8adf6f75a/share#f56d935df381ccd38b1b54ebb249bba4905526b2d3dac873)
+- [LaTeX Source (GitHub)](docs/final_report.tex)
 - [LaTeX Style File](docs/PRIMEarxiv.sty)
 
 ---
