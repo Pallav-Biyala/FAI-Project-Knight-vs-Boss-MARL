@@ -22,9 +22,7 @@ The Boss's capabilities are controlled by two independent multipliers:
 
 The experiment investigates a full Cartesian grid:
 
-\[
-\alpha_H,\alpha_D \in \{0.5,0.75,1.0,1.25,1.5\}
-\]
+$\alpha_H,\alpha_D \in \{0.5,0.75,1.0,1.25,1.5\}$
 
 This produces 25 capability configurations.
 
@@ -144,7 +142,7 @@ The runner supports a full Cartesian capability grid, multiple training regimes,
 
 Use a **new output directory** when reproducing the experiments. The repository already contains the completed result files, and the runner skips jobs whose keys are already present in `results.jsonl`.
 
-The commands below reproduce the three regimes in the same output directory.
+The commands below reproduce the three regimes in the same output directory(reproduction_run).
 
 ### 4.1 Fixed-opponent training
 
@@ -197,6 +195,32 @@ python scripts/run_proposal_experiments.py \
 
 The alternating regime performs one Knight training phase followed by one Boss training phase. The Knight does not undergo another adaptation phase afterward.
 
+## 5. Statistical Analysis and Visualization
+
+After all three regimes have completed, regenerate the analysis using:
+
+```bash
+python scripts/analyze_proposal_results.py --out reproduction_run
+```
+
+The analysis script reads `results.jsonl` and generates:
+
+- Mean and standard deviation of evaluation metrics across training seeds.
+- 95% Student-t confidence intervals.
+- Capability-grid summary tables.
+- Empirical critical asymmetry (`alpha*`) estimates.
+- Diagonal capability comparisons.
+- Health-only and damage-only sensitivity plots.
+- Heuristic-opponent and matched learned-opponent heatmaps.
+- Training-seed variability plots.
+- Markdown result tables.
+
+The five independent training seeds are treated as the statistical units for PPO confidence intervals. The 500 evaluation games per checkpoint are not treated as 500 independent training runs.
+
+The empirical `alpha*` value is the largest tested multiplier at or above parity for which the mean Knight win rate is at least 50%. It is a finite-grid estimate, not a theoretical threshold.
+
+---
+
 ### Output structure
 
 The runner creates an output directory containing:
@@ -226,32 +250,6 @@ reproduction_run/
 ```
 
 `results.jsonl` stores completed experiment results. `baselines.json` stores the random and scripted Knight baseline evaluations. The `runs/` directory contains training artifacts such as checkpoints and logs generated during execution.
-
----
-
-## 5. Statistical Analysis and Visualization
-
-After all three regimes have completed, regenerate the analysis using:
-
-```bash
-python scripts/analyze_proposal_results.py --out reproduction_run
-```
-
-The analysis script reads `results.jsonl` and generates:
-
-- Mean and standard deviation of evaluation metrics across training seeds.
-- 95% Student-t confidence intervals.
-- Capability-grid summary tables.
-- Empirical critical asymmetry (`alpha*`) estimates.
-- Diagonal capability comparisons.
-- Health-only and damage-only sensitivity plots.
-- Heuristic-opponent and matched learned-opponent heatmaps.
-- Training-seed variability plots.
-- Markdown result tables.
-
-The five independent training seeds are treated as the statistical units for PPO confidence intervals. The 500 evaluation games per checkpoint are not treated as 500 independent training runs.
-
-The empirical `alpha*` value is the largest tested multiplier at or above parity for which the mean Knight win rate is at least 50%. It is a finite-grid estimate, not a theoretical threshold.
 
 ---
 
@@ -362,4 +360,9 @@ The complete research report contains the mathematical formulation, environment 
 
 ---
 
-**Project repository:** [Pallav-Biyala/FAI-Project-Knight-vs-Boss-MARL](https://github.com/Pallav-Biyala/FAI-Project-Knight-vs-Boss-MARL)
+# 11. Acknowledgements
+
+This project was developed as part of the course **Foundations of AI: Multi-Agent Systems (CS 329)** under the guidance of **Prof. Manisha Padala**.
+
+We sincerely thank the professor for her guidance, valuable feedback, and support throughout the development of this project.
+
