@@ -363,7 +363,7 @@ The complete research report contains the mathematical formulation, environment 
 
 ## 11. Acknowledgements
 
-This project was developed as part of the course **Foundations of AI: Multi-Agent Systems (CS 329)** under the guidance of **Prof. Manisha Padala**.
+This project is developed as part of the course **Foundations of AI: Multi-Agent Systems (CS 329)** under the guidance of **Prof. Manisha Padala**.
 
 We sincerely thank the professor for her guidance, valuable feedback, and support throughout the development of this project.
 
