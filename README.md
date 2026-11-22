@@ -23,7 +23,7 @@ The Boss's capabilities are controlled by two independent multipliers:
 The experiment investigates a full Cartesian grid:
 
 $$
-\alpha_H,\alpha_D \in \left\{0.5,0.75,1.0,1.25,1.5\right\}
+\alpha_H,\alpha_D \in \lbrace 0.5, 0.75, 1.0, 1.25, 1.5 \rbrace
 $$
 
 This produces 25 capability configurations.
