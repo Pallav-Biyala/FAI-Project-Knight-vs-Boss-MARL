@@ -144,7 +144,7 @@ The runner supports a full Cartesian capability grid, multiple training regimes,
 
 Use a **new output directory** when reproducing the experiments. The repository already contains the completed result files, and the runner skips jobs whose keys are already present in `results.jsonl`.
 
-The commands below reproduce the three regimes in the same output directory(reproduction_run).
+The commands below reproduce the three regimes in the same output directory(**reproduction_run**).
 
 ### 4.1 Fixed-opponent training
 
@@ -362,7 +362,7 @@ The complete research report contains the mathematical formulation, environment 
 
 ---
 
-# 11. Acknowledgements
+## 11. Acknowledgements
 
 This project was developed as part of the course **Foundations of AI: Multi-Agent Systems (CS 329)** under the guidance of **Prof. Manisha Padala**.
 
