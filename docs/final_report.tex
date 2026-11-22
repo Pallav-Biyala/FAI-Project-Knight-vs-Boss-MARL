@@ -98,7 +98,7 @@ Let $\pi_K$ and $\pi_B$ be Knight and Boss policies. The Knight win rate at capa
 W(\pi_K,\pi_B;\alpha_H,\alpha_D)
 =\Pr_{\pi_K,\pi_B}[\text{Knight wins the episode}].
 \end{equation}
-Draws and Boss wins are reported separately. For regime $\rho$, let $\overline{W}_\rho$ denote the mean win rate across independent training seeds. On a specified one-dimensional slice of the capability grid, the empirical threshold is
+Knight win rate is the primary outcome presented in this paper. The repository’s \texttt{summary\_by\_config.csv} also reports loss rates, draw rates, timeout rates, and mean episode lengths for the learned policies. For regime $\rho$, let $\overline{W}_\rho$ denote the mean win rate across independent training seeds. On a specified one-dimensional slice of the capability grid, the empirical threshold is
 \begin{equation}
 \alpha_\rho^* =
 \max\{\alpha\in\mathcal{V}\cap[1,\infty):\overline{W}_\rho(\alpha)\ge 0.5\}.
@@ -155,7 +155,7 @@ For a strictly competitive formulation, one may write
 \sum_{t=0}^{T_{\mathrm{term}}-1}\gamma^t R_K(s_t,a_K^{(t)},a_B^{(t)})
 \right].
 \end{equation}
-Our implemented reward is not strictly zero-sum and PPO does not guarantee finding a minimax equilibrium. We therefore treat the expression as a conceptual robustness objective and compare learned policies empirically using win rate, losses, draws, and episode length.
+Our implemented reward is not strictly zero-sum and PPO does not guarantee finding a minimax equilibrium. We therefore treat the expression as a conceptual robustness objective and compare learned policies empirically using Knight win rate as the primary outcome
 
 \section{Methodology}
 \subsection{Known and Unknown}
@@ -184,7 +184,7 @@ for 25 configurations per regime. The five independent training seeds are 0-4, f
 Every final Knight checkpoint is evaluated over 500 stochastic games against the heuristic Boss. Simultaneous and alternating checkpoints are also evaluated over 500 games against the final learned Boss paired with that run. For simultaneous learning, that Boss was co-trained with the Knight; for alternating learning, the Boss was trained against the frozen Knight. Neither is a fresh best-response policy. A fresh best-response Boss was not trained in this completed experiment because its training budget was set to zero.
 
 \subsection{Evaluation and Statistical Treatment}
-The primary outcome is Knight win rate. Losses, draws, timeouts, and episode length are reported to distinguish defeat from stalemate; a timeout is recorded as a draw, so timeout counts/rates are a subset of draws and must not be added to them. For PPO policies, each seed yields an evaluation win rate over 500 games; reported means and two-sided 95\% Student-$t$ intervals use the five independent training seeds as units. Specifically, the interval is $\bar{x}\pm t_{0.975,4}s/\sqrt{5}$, with sample standard deviation $s$ and $t_{0.975,4}=2.776$. In aggregate tables and win-rate curves, win, loss, draw, and timeout interval endpoints are clipped to $[0,1]$; the seed-variability plot instead draws the un-clipped symmetric intervals. Thus the intervals reflect training-seed variability, not 2,500 independent training runs.
+The paper presents Knight win rates for the learned policies. The repository’s \texttt{summary\_by\_config.csv} also reports loss rates, draw rates, timeout rates, and mean episode lengths. Timeouts are included in draws, so adding the two rates would count timeouts twice. For PPO policies, each seed yields an evaluation win rate over 500 games; reported means and two-sided 95\% Student-$t$ intervals use the five independent training seeds as units. Specifically, the interval is $\bar{x}\pm t_{0.975,4}s/\sqrt{5}$, with sample standard deviation $s$ and $t_{0.975,4}=2.776$. The repository’s summary table clips confidence interval endpoints for all four rates to [0,1]. The win-rate curves also use clipped intervals. The seed-variability plot shows the unclipped intervals. Each win-rate interval for a learned policy is calculated across five independent training seeds. Each seed contributes one win rate estimated from 500 evaluation games.
 
 Random and scripted Knight baseline policies are evaluated separately against the heuristic Boss. Their intervals are Wilson binomial confidence intervals from their own 500-game evaluation, not confidence intervals across PPO training seeds. Fixed-opponent training has only heuristic-opponent evaluation; paired learned Boss evaluations exist for simultaneous and alternating runs, with different Boss training procedures as described above.
 
